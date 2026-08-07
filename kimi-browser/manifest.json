@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Kimi K3 Browser",
+  "version": "0.1.0",
+  "description": "Kimi K3 agent na nakikita at kayang kontrolin ang kasalukuyang tab.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "activeTab",
+    "audioCapture",
+    "tabCapture",
+    "offscreen"
+  ],
+  "host_permissions": ["https://api.kimi.com/*", "https://api.groq.com/*", "<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "Buksan ang Kimi K3" }
+}
