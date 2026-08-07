@@ -1,8 +1,9 @@
-import { readPage, clickRef, typeRef, scrollPage, overlay, listenPage, readWhisperTab } from './page-fns.js';
+import { readPage, clickRef, typeRef, scrollPage, overlay, listenPage, readWhisperTab,
+         hookConsole, readConsole, pasteLarge, recorderStart, recorderStop, applyStep } from './page-fns.js';
 import { remember } from './memory.js';
 
 // Mga tool na nagbabago ng kalagayan sa labas ng browser.
-export const WRITES = new Set(['click', 'type', 'navigate', 'new_tab', 'close_tab']);
+export const WRITES = new Set(['click', 'type', 'navigate', 'new_tab', 'close_tab', 'paste_large', 'run_shortcut', 'schedule_task']);
 
 // Hindi na maibabalik kapag nagawa na — nagtatanong pa rin kahit auto mode.
 export const DANGER = new Set(['close_tab']);
@@ -147,6 +148,15 @@ export const SCHEMA = [
   {
     type: 'function',
     function: {
+      name: 'read_console',
+      description:
+        'Basahin ang console ng working tab: JS errors, warnings, unhandled rejections, at nabigong network calls (4xx/5xx). GAMITIN ITO para sa debugging — WordPress, Elementor, o anumang site na may mali. Ang bawat basa ay nagpapakita lang ng mga BAGONG entry mula sa huling basa. Ang mga error bago ang unang tawag ay hindi nakukuha — mag-reload ng page kung kailangan mo ang load-time errors.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'click',
       description: 'Pindutin ang isang element gamit ang ref nito mula sa read_page.',
       parameters: {
@@ -176,6 +186,23 @@ export const SCHEMA = [
   {
     type: 'function',
     function: {
+      name: 'paste_large',
+      description:
+        'Maglagay ng MAHABANG text sa isang field — HTML para sa Elementor HTML widget, buong CSS/JS file, o mahabang artikulo. Ito ang gamitin kapag lampas 500 karakter; ang `type` ay para sa maikli lang. Gumagana sa textarea, TinyMCE (contenteditable), at CodeMirror — pinapalitan ang BUONG laman ng field.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string' },
+          text: { type: 'string', description: 'Ang buong nilalaman na ipapaste.' },
+          chunk: { type: 'number', description: 'Laki ng bawat bahagi (default 2000 karakter).' },
+        },
+        required: ['ref', 'text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'screenshot',
       description:
         'Tingnan ang working tab bilang larawan. GAMITIN ITO kapag hindi sapat ang teksto: para tingnan kung nagbago ang estado pagkatapos ng pagpindot, para sa UI na puro icon, para sa chart, larawan, video, canvas, o kahit anong nakikita pero hindi nababasa. Kapag dalawang beses nang nabigo ang read_page na sagutin ang tanong mo, tumingin ka na sa halip na sumubok muli. Ipinapakita nito sandali ang working tab sa user (isang kisap lang, ibabalik agad ang dating tab).',
@@ -196,6 +223,36 @@ export const SCHEMA = [
           height: { type: 'number', description: 'Default 1024.' },
         },
         required: ['prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_shortcut',
+      description:
+        'Patakbuhin ang isang naka-record na shortcut — serye ng mga pindot at type na naitala ng user gamit ang ⏺ sa panel. Ibinabalik ang mga available na shortcut kapag mali ang pangalan.',
+      parameters: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'Ang pangalan ng shortcut.' } },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'schedule_task',
+      description:
+        'I-iskedyul ang isang gawain para tumakbo sa hinaharap — minsan o paulit-ulit. Sa scheduled run ay WALANG user na sasagot, kaya ang mga aksyon na nangangailangan ng pahintulot ay awtomatikong nilalaktawan (read-only-ish ito sa disenyo). May notification kapag nagsimula at kapag tapos na.',
+      parameters: {
+        type: 'object',
+        properties: {
+          instruction: { type: 'string', description: 'Ang gawain, buo at malinaw (hal. "Buksan ang example.com at i-check kung may JS errors").' },
+          after_minutes: { type: 'number', description: 'Minsanang takbo, pagkalipas ng ganitong minuto.' },
+          every_minutes: { type: 'number', description: 'Paulit-ulit, kada ganitong minuto.' },
+        },
+        required: ['instruction'],
       },
     },
   },
@@ -430,12 +487,85 @@ export async function currentDomain() {
   }
 }
 
+export async function workingUrl() {
+  try {
+    return (await workingTab()).url || '';
+  } catch {
+    return '';
+  }
+}
+
 export async function runTool(name, args) {
   switch (name) {
     case 'remember':
       return remember(args.scope, args.note, await currentDomain());
     case 'read_page':
       return inPage(readPage, [12000]);
+    case 'read_console': {
+      // I-hook muna sa MAIN world (doon nabubuhay ang console ng page), tapos basahin.
+      // Idempotent ang hook — walang masasira kahit paulit-ulit ang tawag.
+      const tab = await workingTab();
+      await chrome.scripting
+        .executeScript({ target: { tabId: tab.id }, func: hookConsole, world: 'MAIN' })
+        .catch(() => {});
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: readConsole,
+        world: 'MAIN',
+      });
+      return res.result;
+    }
+    case 'paste_large':
+      await point(args.ref);
+      return inPage(pasteLarge, [args.ref, args.text, args.chunk]);
+    case 'run_shortcut': {
+      const { shortcuts = {} } = await chrome.storage.local.get('shortcuts');
+      const sc = shortcuts[args.name];
+      if (!sc) {
+        return {
+          ok: false,
+          error: `Walang shortcut na "${args.name}".`,
+          mapagpipilian: Object.keys(shortcuts),
+        };
+      }
+      const results = [];
+      for (const step of sc.steps) {
+        const r = await inPage(applyStep, [step]);
+        results.push(r.ok ? `ok: ${step.action} ${step.selector}` : `FAIL: ${r.error}`);
+        await settle(600);
+        // Baka nag-navigate ang hakbang — hintayin bago ang susunod.
+        const t = await workingTab().catch(() => null);
+        if (t && t.status === 'loading') await waitForLoad(t.id, 8000);
+        if (!r.ok) break; // itigil sa unang sablay — huwag nang ipagpatuloy nang bulag
+      }
+      return { ok: results.every((x) => x.startsWith('ok')), hakbang: results };
+    }
+    case 'schedule_task': {
+      const { schedules = [] } = await chrome.storage.local.get('schedules');
+      const mins = Math.max(1, Math.round(args.every_minutes || args.after_minutes || 60));
+      const id = 'sched-' + Date.now().toString(36);
+      schedules.push({
+        id,
+        instruction: String(args.instruction).slice(0, 500),
+        every: args.every_minutes ? mins : null,
+        createdAt: Date.now(),
+      });
+      await chrome.storage.local.set({ schedules });
+      await chrome.alarms.create(
+        id,
+        args.every_minutes ? { periodInMinutes: mins } : { delayInMinutes: mins }
+      );
+      return {
+        ok: true,
+        id,
+        tatakbo: args.every_minutes ? `kada ${mins} minuto` : `minsan, pagkalipas ng ${mins} minuto`,
+      };
+    }
+    // Mga panloob na tool para sa record & replay (hindi nasa schema — panel ang nagtatawag).
+    case '_record_start':
+      return inPage(recorderStart);
+    case '_record_stop':
+      return inPage(recorderStop);
     case 'screenshot': {
       const tab = await workingTab();
       // Ang captureVisibleTab ay kumukuha ng NAKIKITANG tab, kaya kailangan munang
