@@ -266,6 +266,7 @@ mula sa caption mismo, at magmungkahi batay doon.`;
 async function getSettings() {
   const d = await chrome.storage.local.get([
     'apiKey', 'apiKeys', 'provider', 'customUrl', 'model', 'strongModel', 'mode', 'autopilot',
+    'audit', 'auditProvider', 'auditModel',
   ]);
   const provider = d.provider || 'kimi';
   const keys = d.apiKeys || {};
@@ -273,6 +274,15 @@ async function getSettings() {
   const baseUrl =
     provider === 'custom' ? (d.customUrl || '') : PROVIDER_URLS[provider] || PROVIDER_URLS.kimi;
   const model = d.model || 'k3';
+
+  // Ang AUDITOR: ikalawang AI na nagsusuri ng trabaho ng worker — ibang provider,
+  // ibang key, ibang model. Pwede silang pagsabayin dahil hiwalay ang tawag nito.
+  const auditProvider = d.auditProvider || 'tokenplan';
+  const auditModel = d.auditModel || 'qwen3.8-max';
+  const auditUrl =
+    auditProvider === 'custom' ? (d.customUrl || '') : PROVIDER_URLS[auditProvider] || '';
+  const auditKey = keys[auditProvider] || (auditProvider === 'kimi' ? d.apiKey || '' : '');
+
   return {
     apiKey,
     baseUrl,
@@ -281,8 +291,28 @@ async function getSettings() {
     strongModel: d.strongModel || STRONG_DEFAULTS[provider] || model,
     mode: d.mode || 'adaptive',
     autopilot: !!d.autopilot,
+    audit: !!d.audit,
+    auditUrl,
+    auditKey,
+    auditModel,
   };
 }
+
+// --- SECOND OPINION (worker + auditor combo) ---
+// Pagkatapos ng gawain, ipinapadala ang huling sagot ng worker sa IBANG AI para
+// suriin — parang second opinion sa doktor. Lumalabas ito bilang audit bubble sa
+// panel, may button na "ipasa ang puna kay worker" para mag-usap ang dalawang AI.
+const AUDIT_SYSTEM = `Ikaw ang AUDITOR — ikalawang AI na nagsusuri ng trabaho ng pangunahing
+browser agent (ang "worker"). Hindi ka nakikialam sa browser; nagsusuri ka lang ng resulta.
+
+Hanapin mo, sa pagkakasunod na ito:
+1. MALI — maling fact, maling presyo, maling hakbang, maling konklusyon?
+2. KULANG — may hinihingi ang user na hindi nasagot o hindi natapos?
+3. PANGANIB — may delikadong aksyon o maling hula na dapat i-flag?
+4. MAS MAGANDANG PARAAN — may mas mabilis, mas mura, o mas siguradong daan?
+
+Maikli lang: 2 hanggang 4 na bala, kongkreto. Kung walang problema, sabihin nang
+diretso na ayos ang trabaho at bakit. Sumagot sa wika ng user.`;
 
 // --- WORDPRESS/ELEMENTOR PLAYBOOK ---
 // Idinadagdag sa system prompt kapag nasa wp-admin ang working tab — parang built-in
@@ -685,7 +715,8 @@ chrome.runtime.onConnect.addListener((port) => {
 
     run = { id: msg.runId, sessionId: msg.sessionId };
 
-    const { apiKey, baseUrl, model, strongModel, mode, autopilot } = await getSettings();
+    const { apiKey, baseUrl, model, strongModel, mode, autopilot,
+            audit, auditUrl, auditKey, auditModel } = await getSettings();
     if (!apiKey) {
       send({ type: 'error', text: 'Walang API key. Ilagay mo sa taas ng panel.' });
       send({ type: 'done' });
@@ -823,6 +854,37 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     }
 
+    // SECOND OPINION: pagkatapos ng gawain, ipa-audit ang huling sagot sa ibang AI.
+    // Hiwalay na tawag ito sa ibang provider/key — pwedeng magkasabay sila ng worker.
+    async function runAudit(finalText) {
+      if (!audit || !auditKey || !auditUrl || !finalText) return;
+      const firstUser = (
+        messages.find((m) => m.role === 'user' && typeof m.content === 'string')?.content || ''
+      ).slice(0, 600);
+      send({ type: 'tool', name: '_audit', args: { model: auditModel } });
+      const { reply, streamed } = await callModel({
+        url: auditUrl,
+        apiKey: auditKey,
+        model: auditModel,
+        messages: [
+          { role: 'system', content: AUDIT_SYSTEM },
+          {
+            role: 'user',
+            content:
+              `ANG UTOOS NG USER:\n${firstUser}\n\n` +
+              `ANG HULING SAGOT NG WORKER (${routedModel}):\n${finalText.slice(0, 8000)}`,
+          },
+        ],
+        signal: abort.signal,
+        onDelta: (type, text) => {
+          if (type === 'assistant_delta') send({ type: 'audit_delta', text });
+        },
+      });
+      if (!reply) return;
+      if (!streamed && reply.content) send({ type: 'audit_delta', text: reply.content });
+      send({ type: 'audit_end', model: auditModel, worker: routedModel });
+    }
+
     let failStreak = 0; // sunod na step na may error — para sa model routing
     // Ang PINILI ng user sa dropdown ang default ng loop — iginalang. Ang router ay
     // umaakyat lang (k3-256k -> k3) kapag maliit ang model at kailangan ng tulong;
@@ -906,6 +968,8 @@ chrome.runtime.onConnect.addListener((port) => {
               continue; // hindi pa tapos — tuloy ang loop
             }
           }
+          // SECOND OPINION: ipa-audit sa ibang AI bago tapusin (kapag naka-on).
+          if (reply.content) await runAudit(reply.content);
           // Hindi hinihintay ang reflect — ang pagkatuto ay hindi dapat magpabagal
           // ng "tapos na". Kung mapatay man ang service worker bago ito matapos,
           // walang nawawalang trabaho — memory lang ng susunod na gawain.
