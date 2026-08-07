@@ -3,6 +3,21 @@
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 
+## Anong bago sa v0.6.0
+
+- **Malinis na UI** — ang API key/provider/model/auditor settings ay nasa likod na ng
+  ⚙ button, at ang lahat ng feature toggle ay nasa ⋯ menu. Isang malinis na header row
+  na lang: mode, hint, model chip, at gear.
+- **Model badges** — ang bawat sagot ay may maliit na tag kung aling model ang sumagot
+  (transparency: alam mo kung si K3, Qwen, DeepSeek, o GLM ang nagsasalita).
+- **Magic overlay** — kapag kumikilos ang agent sa page: glowing violet frame, banner
+  na may LIVE status (hal. "Pinipindot ang ref_12") at TIMER, moving cursor, at
+  sparkle effects — makikita mo mismo ang ginagawa niya habang nagtatrabaho.
+- **🗳 Voting system** — ilagay sa auditor model field ang maraming model na
+  comma-separated (hal. `qwen3.8-max, deepseek-v4-pro, glm-5.2`) at SABAY-SABAY
+  silang bibigay ng second brain review, bawat isa may SCORE na boto, at may
+  consensus na PASS/AYUSIN sa dulo.
+
 ## Anong bago sa v0.5.1
 
 - **Second brain** — pinalakas ang auditor: hindi lang taga-hanap ng mali, taga-bigay
@@ -124,9 +139,9 @@ ng ibang session tab, babalik ang tanong kapag bumalik ka sa tab na iyon.
 
 | File | Laman |
 |---|---|
-| `background.js` | agent loop, multi-provider API (streaming), permission gate, scope group, autopilot, alarms, model routing, auto-compaction, auditor |
+| `background.js` | agent loop, multi-provider API (streaming), permission gate, scope group, autopilot, alarms, model routing, auto-compaction, second brain + voting |
 | `tools.js` | tool schema + dispatch, working tab logic, waitForLoad, generate_image, shortcuts, schedules |
-| `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type, console hook, paste, recorder, page signature) |
+| `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type, console hook, paste, recorder, page signature, magic overlay) |
 | `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export, provider/model/auditor settings |
 | `memory.js` | natutunan niya per-site at tungkol sa iyo |
 | `history.js` | pag-aayos ng mga naulilang tool call |
