@@ -1,4 +1,4 @@
-import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
+import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
 import { promptFor } from './memory.js';
 
 const API = 'https://api.kimi.com/coding/v1/chat/completions';
@@ -159,9 +159,125 @@ Kung walang ibinigay na konteksto ang user, magtrabaho pa rin — alamin mo ang 
 mula sa caption mismo, at magmungkahi batay doon.`;
 
 async function getSettings() {
-  const d = await chrome.storage.local.get(['apiKey', 'model', 'mode']);
-  return { apiKey: d.apiKey || '', model: d.model || 'k3', mode: d.mode || 'adaptive' };
+  const d = await chrome.storage.local.get(['apiKey', 'model', 'mode', 'autopilot']);
+  return { apiKey: d.apiKey || '', model: d.model || 'k3', mode: d.mode || 'adaptive', autopilot: !!d.autopilot };
 }
+
+// --- WORDPRESS/ELEMENTOR PLAYBOOK ---
+// Idinadagdag sa system prompt kapag nasa wp-admin ang working tab — parang built-in
+// site knowledge ng Claude, pero para sa mismong trabaho ng user: Elementor at WordPress.
+const WP_PLAYBOOK = `
+
+NASA WORDPRESS ADMIN KA. Ito ang mga alam mo tungkol dito:
+
+- Elementor HTML widget: hanapin ang "HTML" na widget sa kaliwang panel, i-drag sa canvas,
+  tapos sa "HTML Code" na textarea sa kaliwa ay gamitin ang paste_large (hindi type —
+  mahaba ang HTML). Pagkatapos, berdeng UPDATE button sa ibaba.
+- TinyMCE (Text Editor widget o classic editor): contenteditable ito. Siguraduhin na
+  nasa tamang tab ("Visual" para sa formatted, "Text" para sa HTML). Gamitin ang paste_large.
+- CodeMirror (Appearance → Theme File Editor o plugin editor): contenteditable din.
+  Para sa code fix, palitan ang BUONG file gamit ang paste_large — buong file na may
+  tamang code ang ilalagay mo, hindi surgical na edit.
+- May mali sa page? Tumawag ng read_console — JS errors at nabigong network calls
+  ang unang tinitingnan kapag may sirang Elementor o plugin.
+- Ang UPDATE/PUBLISH sa production site ay ang pinakadelikadong pindot dito — kung
+  Manual mode, itanong muna; kung malinaw sa utos na dapat i-publish, ituloy.`;
+
+// --- HEADLESS RUN (para sa scheduled tasks) ---
+// Walang panel, walang user na sasagot. Ang mga aksyon na nangangailangan ng
+// pahintulot ay awtomatikong nilalaktawan — read-only-ish sa disenyo, kaya ligtas
+// iwanang tumakbo. May notification sa simula at sa dulo.
+async function headlessRun(instruction) {
+  const { apiKey, model } = await getSettings();
+  if (!apiKey) return;
+
+  notify('K3 · scheduled task', instruction);
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+    const gid = await chrome.tabs.group({ tabIds: [tab.id] });
+    await chrome.tabGroups.update(gid, { title: 'K3 · scheduled', color: 'purple' });
+    setScope(gid, tab.id);
+  } catch {
+    return;
+  }
+
+  const messages = [
+    { role: 'system', content: SYSTEM },
+    { role: 'user', content: instruction },
+  ];
+  const abort = new AbortController();
+  const stopKeepAlive = keepAlive();
+  let summary = 'Walang nakuha.';
+
+  try {
+    await chrome.action.setBadgeBackgroundColor({ color: '#7c5cff' });
+    await chrome.action.setBadgeText({ text: '●' });
+    for (let step = 0; step < 30; step++) {
+      const { reply, error } = await callModel({
+        apiKey,
+        model,
+        messages,
+        tools: schemaFor('adaptive'),
+        signal: abort.signal,
+      });
+      if (error || !reply) {
+        summary = error || 'Walang sagot ang API.';
+        break;
+      }
+      messages.push(reply);
+      if (reply.content) summary = reply.content.slice(0, 300);
+
+      const calls = reply.tool_calls || [];
+      if (!calls.length) break;
+
+      for (const call of calls) {
+        const name = call.function.name;
+        let args = {};
+        try {
+          args = JSON.parse(call.function.arguments || '{}');
+        } catch {}
+
+        let result;
+        if (name === 'ask_user' || needsApproval('adaptive', name)) {
+          // Walang user — laktawan ang anumang nangangailangan ng desisyon o pahintulot.
+          result = { error: 'Scheduled run ito: walang user na sasagot, kaya nilaktawan ang hakbang na ito.' };
+        } else if (name === 'collect') {
+          result = { ok: true, note: 'Naitala.' };
+        } else {
+          try {
+            result = await runTool(name, args);
+          } catch (e) {
+            result = { error: e.message };
+          }
+        }
+        if (result?.image) result = { ok: true, note: 'May larawan (hindi kasama sa scheduled summary).' };
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify(result).slice(0, 30000),
+        });
+      }
+    }
+  } finally {
+    stopKeepAlive();
+    try {
+      await chrome.action.setBadgeText({ text: '' });
+    } catch {}
+    notify('K3 · tapos ang scheduled task', summary);
+  }
+}
+
+chrome.alarms?.onAlarm.addListener(async (alarm) => {
+  const { schedules = [] } = await chrome.storage.local.get('schedules');
+  const task = schedules.find((s) => s.id === alarm.name);
+  if (!task) return;
+  if (!task.every) {
+    // One-shot: tanggalin na sa listahan pagkatapos tumakbo.
+    await chrome.storage.local.set({ schedules: schedules.filter((s) => s.id !== task.id) });
+  }
+  await headlessRun(task.instruction);
+});
 
 chrome.action.onClicked.addListener((tab) =>
   chrome.sidePanel.open({ windowId: tab.windowId })
@@ -431,11 +547,23 @@ chrome.runtime.onConnect.addListener((port) => {
       abort?.abort();
       return;
     }
+    if (msg.type === 'record') {
+      // Record & replay: nagsisimula/nagtatapos ng pag-record ng mga pindot ng user
+      // sa working tab. Ang mga hakbang ay ibinabalik sa panel para i-save bilang shortcut.
+      if (msg.on) {
+        await runTool('_record_start');
+      } else {
+        const r = await runTool('_record_stop');
+        if (r?.steps?.length) send({ type: 'recorded', steps: r.steps });
+        else send({ type: 'error', text: 'Walang naitalang hakbang — baka nag-navigate ang page sa gitna ng recording.' });
+      }
+      return;
+    }
     if (msg.type !== 'ask') return;
 
     run = { id: msg.runId, sessionId: msg.sessionId };
 
-    const { apiKey, model, mode } = await getSettings();
+    const { apiKey, model, mode, autopilot } = await getSettings();
     if (!apiKey) {
       send({ type: 'error', text: 'Walang API key. Ilagay mo sa taas ng panel.' });
       send({ type: 'done' });
@@ -457,7 +585,8 @@ chrome.runtime.onConnect.addListener((port) => {
     // Ang panel ang nagpapadala ng buong kasaysayan, kaya kahit namatay ang
     // service worker, buo pa rin ang usapan.
     const modeNote = mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : '';
-    const system = SYSTEM + modeNote + (await promptFor(await currentDomain()));
+    const wpNote = (await workingUrl()).includes('wp-admin') ? WP_PLAYBOOK : '';
+    const system = SYSTEM + modeNote + wpNote + (await promptFor(await currentDomain()));
     messages = [{ role: 'system', content: system }, ...(msg.history || [])];
     abort = new AbortController();
     const stopKeepAlive = keepAlive();
@@ -511,6 +640,62 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     }
 
+    // AUTOPILOT: pagkatapos masagot ang isang gawain, titingnan ng model kung may
+    // malinaw pang natitira sa orihinal na hinihingi — at kung meron, magpapatuloy
+    // nang kusa sa parehong run. May hangganang 5 na kadena, at nananatili ang lahat
+    // ng permission gates (kung kailangan ng pahintulot, magtatanong pa rin sa iyo).
+    let chains = 0;
+
+    async function decideNext() {
+      try {
+        const res = await fetch(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model,
+            max_tokens: 512,
+            tools: [
+              {
+                type: 'function',
+                function: {
+                  name: 'continue_task',
+                  description:
+                    'Tawagin ITO lang kapag may MALINAW na natitirang bahagi ng orihinal na hinihingi ng user na hindi pa nagagawa. Kung tapos na lahat, o kung ang natitira ay kailangan ng desisyon ng user, huwag tumawag.',
+                  parameters: {
+                    type: 'object',
+                    properties: {
+                      next_instruction: {
+                        type: 'string',
+                        description: 'Ang eksaktong susunod na hakbang — maikli at kongkreto.',
+                      },
+                    },
+                    required: ['next_instruction'],
+                  },
+                },
+              },
+            ],
+            messages: [
+              ...messages,
+              {
+                role: 'user',
+                content:
+                  'Tapos na ba ang LAHAT ng hinihingi ko sa gawaing ito? Kung may natitira pang malinaw na bahagi, tumawag ng continue_task. Kung tapos na o kung kailangan na ng desisyon ko, huwag — sagutin mo lang ako.',
+              },
+            ],
+            signal: abort.signal,
+          }),
+        });
+        if (!res.ok) return null;
+        const m = (await res.json()).choices?.[0]?.message;
+        const c = (m?.tool_calls || []).find((x) => x.function.name === 'continue_task');
+        if (!c) return null;
+        const a = JSON.parse(c.function.arguments || '{}');
+        return String(a.next_instruction || '').slice(0, 300) || null;
+      } catch {
+        return null; // ang autopilot ay hindi dapat magpabagsak ng natapos nang gawain
+      }
+    }
+
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
         const saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages);
@@ -546,6 +731,19 @@ chrome.runtime.onConnect.addListener((port) => {
 
         const calls = reply.tool_calls || [];
         if (!calls.length) {
+          // AUTOPILOT: baka may susunod pang hakbang sa orihinal na hinihingi.
+          if (autopilot && chains < 5 && step >= 1) {
+            const next = await decideNext();
+            if (next) {
+              chains++;
+              send({ type: 'tool', name: '_autopilot', args: { next, chains } });
+              record({
+                role: 'user',
+                content: `[AUTOPILOT ${chains}/5] Ituloy mo itong susunod na hakbang: ${next}`,
+              });
+              continue; // hindi pa tapos — tuloy ang loop
+            }
+          }
           // Hindi hinihintay ang reflect — ang pagkatuto ay hindi dapat magpabagal
           // ng "tapos na". Kung mapatay man ang service worker bago ito matapos,
           // walang nawawalang trabaho — memory lang ng susunod na gawain.
