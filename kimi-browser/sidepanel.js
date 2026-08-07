@@ -265,7 +265,7 @@ const showHint = () => ($('hint').textContent = HINTS[$('mode').value]);
 let ttsOn = false;
 let soundOn = true;
 
-chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound']).then((d) => {
+chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound', 'autopilot']).then((d) => {
   $('key').value = d.apiKey || '';
   $('model').value = d.model || 'k3';
   $('mode').value = d.mode || 'adaptive';
@@ -273,6 +273,7 @@ chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound']).then((d) =
   soundOn = d.sound !== false;
   $('tts').classList.toggle('on', ttsOn);
   $('sound').classList.toggle('on', soundOn);
+  $('pilot').classList.toggle('on', !!d.autopilot);
   showHint();
 });
 $('key').onchange = () => chrome.storage.local.set({ apiKey: $('key').value.trim() });
@@ -362,6 +363,11 @@ const SAYS = {
   _capture: () => 'Nakikinig na sa tunog ng tab',
   list_tabs: () => 'Tinitingnan ang mga tab sa group',
   switch_tab: () => 'Lumilipat ng working tab',
+  read_console: () => 'Binabasa ang console ng page',
+  paste_large: (a) => `Nagpa-paste ng ${String(a.text || '').length} karakter`,
+  run_shortcut: (a) => `Pinapatakbo ang shortcut na "${a.name}"`,
+  schedule_task: () => 'Nag-iiskedyul ng gawain',
+  _autopilot: (a) => `🛩 Nagpapatuloy (${a.chains}/5): ${String(a.next).slice(0, 60)}`,
 };
 const hostOf = (u) => {
   try {
@@ -688,6 +694,8 @@ function onMessage(m) {
     case 'msg':
       sess.history.push(m.message);
       return save();
+    case 'recorded':
+      return finishRecording(m.steps);
     case 'done':
       activeRuns.delete(m.runId);
       runsById.delete(m.runId);
@@ -1076,6 +1084,88 @@ $('mem').onclick = async () => {
       row.remove();
     };
     row.append(t, x);
+    box.append(row);
+  }
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+};
+
+// --- AUTOPILOT: kusang nagpapatuloy sa susunod na hakbang ---
+$('pilot').onclick = () => {
+  const on = !$('pilot').classList.contains('on');
+  $('pilot').classList.toggle('on', on);
+  chrome.storage.local.set({ autopilot: on });
+  const s = active();
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: on
+        ? '🛩 Autopilot ON — pagkatapos ng gawain, kusang magpapatuloy sa susunod na hakbang (max 5, may permission gates pa rin)'
+        : '🛩 Autopilot OFF',
+    });
+};
+
+// --- RECORD & REPLAY ---
+let recording = false;
+
+$('rec').onclick = () => {
+  const s = active();
+  recording = !recording;
+  $('rec').classList.toggle('on', recording);
+  getPort().postMessage({ type: 'record', on: recording });
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: recording
+        ? '⏺ Nagre-record — gawin mo ang mga pindot sa working tab, tapos pindutin ulit ito para ihinto'
+        : '⏺ Huminto ang recording…',
+    });
+};
+
+async function finishRecording(steps) {
+  recording = false;
+  $('rec').classList.remove('on');
+  const s = active();
+  const name = window.prompt(`Pangalan ng shortcut na ito (${steps.length} hakbang):`);
+  if (!name) {
+    if (s) emit(s, { t: 'tool', text: 'Hindi na-save ang recording.' });
+    return;
+  }
+  const { shortcuts = {} } = await chrome.storage.local.get('shortcuts');
+  shortcuts[name] = { steps, createdAt: Date.now() };
+  await chrome.storage.local.set({ shortcuts });
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: `⏺ Naka-save ang shortcut na "${name}" (${steps.length} hakbang) — sabihin mo lang: "i-run ang ${name}"`,
+    });
+}
+
+// --- SCHEDULED TASKS ---
+$('sched').onclick = async () => {
+  const { schedules = [] } = await chrome.storage.local.get('schedules');
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  const b = document.createElement('b');
+  b.textContent = schedules.length ? `Naka-iskedyul (${schedules.length})` : 'Walang naka-iskedyul na gawain.';
+  box.append(b);
+  for (const t of schedules) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginTop = '4px';
+    const span = document.createElement('span');
+    span.className = 'dim';
+    span.style.flex = '1';
+    span.textContent = `${t.every ? `kada ${t.every} min` : 'minsan'}: ${t.instruction.slice(0, 80)}`;
+    const x = document.createElement('button');
+    x.textContent = '×';
+    x.onclick = async () => {
+      await chrome.alarms.clear(t.id);
+      const { schedules: cur = [] } = await chrome.storage.local.get('schedules');
+      await chrome.storage.local.set({ schedules: cur.filter((q) => q.id !== t.id) });
+      row.remove();
+    };
+    row.append(span, x);
     box.append(row);
   }
   log.append(box);
