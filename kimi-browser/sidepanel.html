@@ -282,6 +282,15 @@
           <select id="model" title="Model" style="width:170px;flex:none"></select>
           <input id="baseurl" placeholder="https://... (base URL ng custom provider)" style="display:none" />
         </div>
+        <div class="row" id="ttsrow">
+          <span class="dim" style="flex:none">🗣 Boses:</span>
+          <select id="ttsengine" title="TTS engine" style="width:auto;flex:none">
+            <option value="browser">Browser (libre)</option>
+            <option value="cartesia">Cartesia Sonic (natural na Tagalog)</option>
+          </select>
+          <input id="cartesiakey" type="password" placeholder="Cartesia key (sk_car_...)" style="display:none" />
+          <select id="cartesiavoice" title="Boses" style="display:none;max-width:140px"></select>
+        </div>
         <div class="row" id="auditrow" style="display:none">
           <span class="dim" style="flex:none">🧐 Second brain:</span>
           <select id="auditprovider" title="Provider ng auditor" style="width:auto;flex:none">

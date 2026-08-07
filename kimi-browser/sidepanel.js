@@ -414,7 +414,7 @@ function fillAModels(keepValue = false) {
 
 chrome.storage.local
   .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme',
-        'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach'])
+        'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach', 'ttsEngine', 'cartesiaKey'])
   .then((d) => {
     apiKeys = d.apiKeys || {};
     // Migration: ang lumang single apiKey ay para sa Kimi; ang groqKey ng Whisper
@@ -435,6 +435,12 @@ chrome.storage.local
     $('sound').classList.toggle('on', soundOn);
     $('pilot').classList.toggle('on', !!d.autopilot);
     $('teach').classList.toggle('on', !!d.teach);
+    // TTS engine: browser o Cartesia Sonic
+    ttsEngine = d.ttsEngine || 'browser';
+    $('ttsengine').value = ttsEngine;
+    $('cartesiakey').value = d.cartesiaKey || '';
+    syncTtsRow();
+    if (ttsEngine === 'cartesia' && d.cartesiaKey) loadCartesiaVoices();
     // Auditor settings
     auditOn = !!d.audit;
     $('audit').classList.toggle('on', auditOn);
@@ -629,18 +635,113 @@ $('sound').onclick = () => {
 };
 
 // --- TTS: binabasa nang malakas ang mga sagot ---
-function speak(text, then) {
-  if (!ttsOn || !text) {
-    then?.();
-    return;
-  }
+// Dalawang engine: browser speechSynthesis (libre, robotic) at Cartesia Sonic
+// (natural na Tagalog — sonic-3, language 'tl', kaya pati Taglish maayos basahin).
+// Libre ang 20K characters/buwan sa Cartesia, kaya naka-cap sa 1200 chars kada basa.
+let ttsEngine = 'browser';
+let ttsAudio = null;
+
+function ttsStop() {
   speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text.replace(/[*#`_]/g, '').slice(0, 1200));
+  if (ttsAudio) {
+    ttsAudio.onended = null;
+    ttsAudio.pause();
+    ttsAudio = null;
+  }
+}
+
+function speakBrowser(text, then) {
+  const u = new SpeechSynthesisUtterance(text);
   u.lang = navigator.language?.startsWith('tl') ? 'tl-PH' : 'en-US';
   u.onend = () => then?.();
   u.onerror = () => then?.();
   speechSynthesis.speak(u);
 }
+
+async function speakCartesia(text, then) {
+  const { cartesiaKey, cartesiaVoice } = await chrome.storage.local.get(['cartesiaKey', 'cartesiaVoice']);
+  if (!cartesiaKey || !cartesiaVoice) return speakBrowser(text, then);
+  try {
+    const res = await fetch('https://api.cartesia.ai/tts/bytes', {
+      method: 'POST',
+      headers: {
+        'Cartesia-Version': '2026-03-01',
+        Authorization: `Bearer ${cartesiaKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model_id: 'sonic-3',
+        transcript: text,
+        voice: { mode: 'id', id: cartesiaVoice },
+        language: 'tl',
+        output_format: { container: 'mp3', sample_rate: 44100, bit_rate: 128000 },
+      }),
+    });
+    if (!res.ok) throw new Error(`Cartesia ${res.status}`);
+    const url = URL.createObjectURL(await res.blob());
+    ttsAudio = new Audio(url);
+    ttsAudio.onended = () => {
+      URL.revokeObjectURL(url);
+      ttsAudio = null;
+      then?.();
+    };
+    await ttsAudio.play();
+  } catch {
+    speakBrowser(text, then); // huwag manahimik — bumalik sa browser voice
+  }
+}
+
+function speak(text, then) {
+  if (!ttsOn || !text) {
+    then?.();
+    return;
+  }
+  ttsStop();
+  const clean = text.replace(/[*#`_]/g, '').slice(0, 1200);
+  if (ttsEngine === 'cartesia') speakCartesia(clean, then);
+  else speakBrowser(clean, then);
+}
+
+// Ang mga boses ng Cartesia — live mula sa API, Tagalog muna; kapag walang tl na
+// boses, ipapakita ang lahat (kaya ng kahit anong Sonic voice ang 'tl' via language).
+async function loadCartesiaVoices() {
+  const key = $('cartesiakey').value.trim();
+  if (!key) return;
+  const hdr = { 'Cartesia-Version': '2026-03-01', Authorization: `Bearer ${key}` };
+  try {
+    const grab = async (q) =>
+      ((await (await fetch(`https://api.cartesia.ai/voices?limit=100${q}`, { headers: hdr })).json()).data) || [];
+    let voices = await grab('&language=tl');
+    if (!voices.length) voices = await grab('');
+    if (!voices.length) return;
+    const { cartesiaVoice } = await chrome.storage.local.get('cartesiaVoice');
+    $('cartesiavoice').replaceChildren(
+      ...voices.map((v) => new Option(v.language === 'tl' ? v.name : `${v.name} (${v.language})`, v.id))
+    );
+    if (cartesiaVoice && voices.some((v) => v.id === cartesiaVoice)) {
+      $('cartesiavoice').value = cartesiaVoice;
+    } else {
+      chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
+    }
+  } catch {} // ang picker ay palamuti — may fallback naman sa browser voice
+}
+
+const syncTtsRow = () => {
+  const car = $('ttsengine').value === 'cartesia';
+  $('cartesiakey').style.display = car ? '' : 'none';
+  $('cartesiavoice').style.display = car ? '' : 'none';
+};
+$('ttsengine').onchange = () => {
+  chrome.storage.local.set({ ttsEngine: $('ttsengine').value });
+  ttsEngine = $('ttsengine').value;
+  syncTtsRow();
+  if (ttsEngine === 'cartesia') loadCartesiaVoices();
+};
+$('cartesiakey').onchange = () => {
+  chrome.storage.local.set({ cartesiaKey: $('cartesiakey').value.trim() });
+  loadCartesiaVoices();
+};
+$('cartesiavoice').onchange = () => chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
 
 function maybeSpeak(text) {
   speak(text, () => {
@@ -653,7 +754,7 @@ $('tts').onclick = () => {
   ttsOn = !ttsOn;
   $('tts').classList.toggle('on', ttsOn);
   chrome.storage.local.set({ tts: ttsOn });
-  if (!ttsOn) speechSynthesis.cancel();
+  if (!ttsOn) ttsStop();
 };
 
 // Ang tool call bilang pangungusap, hindi bilang JSON.

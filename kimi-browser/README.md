@@ -1,5 +1,14 @@
 # Kimi K3 Browser
 
+## Anong bago sa v0.8.0 (natural na Tagalog na boses)
+
+- **🗣 Cartesia Sonic TTS** — sa ⚙ settings, piliin ang "Cartesia Sonic (natural na
+  Tagalog)" bilang boses. Natural na Tagalog/Taglish ang pagbasa ng mga sagot, hindi
+  na robotic. Kumuha ng libreng key sa play.cartesia.ai (20K characters/buwan libre),
+  i-paste, at pumili ng boses — Tagalog voices muna ang inililista.
+- May automatic fallback sa browser voice kapag walang key, walang credits, o nag-error
+  ang API — hindi mananahimik ang TTS.
+
 ## Anong bago sa v0.7.1
 
 - **Totoong dropdown na ang model picker** — hindi na datalist na nagtatago ng mga
