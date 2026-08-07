@@ -1,0 +1,13 @@
+export async function setOverlay(on) {
+  try {
+    await inPage(overlay, [on ? 'on' : 'off', null]);
+  } catch {}
+}
+
+// Ang nakikitang status sa page banner — para makita ng user kung ano ang ginagawa
+// ng agent NGAYON, kasama ang oras, habang kumikilos ito sa tab.
+export async function setStatus(text) {
+  try {
+    await inPage(overlay, ['status', String(text).slice(0, 60)]);
+  } catch {}
+}
