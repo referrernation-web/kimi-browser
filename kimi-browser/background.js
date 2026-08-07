@@ -1,7 +1,17 @@
 import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
 import { promptFor } from './memory.js';
 
-const API = 'https://api.kimi.com/coding/v1/chat/completions';
+// --- PROVIDERS ---
+// Ang DashScope (Alibaba) ay may OpenAI-compatible endpoint, kaya iisa ang daloy
+// ng code — ang base URL, key, at model lang ang nagbabago. Ang Custom ay para sa
+// kahit anong OpenAI-compatible na serbisyo (OpenRouter, Together, lokal na server, atbp.).
+const PROVIDER_URLS = {
+  kimi: 'https://api.kimi.com/coding/v1/chat/completions',
+  dashscope: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+};
+// Ang default na "malakas" na model kada provider — target ng model routing escalation.
+const STRONG_DEFAULTS = { kimi: 'k3', dashscope: 'qwen-max' };
+
 const MAX_STEPS = 60; // ang pananaliksik na dumadaan sa maraming listing ay lumalampas sa 30
 
 const SYSTEM = `Ikaw ay Kimi K3, isang browser agent na nakaupo sa totoong Chrome ng user.
@@ -160,7 +170,7 @@ function totalChars(msgs) {
 // usapan — ang buod lang ang pinapanatili, kasama ang huling ilang mensahe. Samantala,
 // hinahayaan nating tumawag ito ng `remember` para mailigtas ang mga durable na
 // fact bago mawala ang detalye. Ito ang gamot sa "nagbobobo habang humahaba."
-async function autoCompact(messages, apiKey, model, signal, onRemember) {
+async function autoCompact(messages, url, apiKey, model, signal, onRemember) {
   const KEEP_TAIL = 8;
   if (messages.length < 16) return 0;
 
@@ -173,7 +183,7 @@ async function autoCompact(messages, apiKey, model, signal, onRemember) {
   const head = messages.slice(1, cut); // lahat maliban sa system at buntot
   let res;
   try {
-    res = await fetch(API, {
+    res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -253,8 +263,24 @@ Kung walang ibinigay na konteksto ang user, magtrabaho pa rin — alamin mo ang 
 mula sa caption mismo, at magmungkahi batay doon.`;
 
 async function getSettings() {
-  const d = await chrome.storage.local.get(['apiKey', 'model', 'mode', 'autopilot']);
-  return { apiKey: d.apiKey || '', model: d.model || 'k3', mode: d.mode || 'adaptive', autopilot: !!d.autopilot };
+  const d = await chrome.storage.local.get([
+    'apiKey', 'apiKeys', 'provider', 'customUrl', 'model', 'strongModel', 'mode', 'autopilot',
+  ]);
+  const provider = d.provider || 'kimi';
+  const keys = d.apiKeys || {};
+  const apiKey = keys[provider] || (provider === 'kimi' ? d.apiKey || '' : '');
+  const baseUrl =
+    provider === 'custom' ? (d.customUrl || '') : PROVIDER_URLS[provider] || PROVIDER_URLS.kimi;
+  const model = d.model || 'k3';
+  return {
+    apiKey,
+    baseUrl,
+    provider,
+    model,
+    strongModel: d.strongModel || STRONG_DEFAULTS[provider] || model,
+    mode: d.mode || 'adaptive',
+    autopilot: !!d.autopilot,
+  };
 }
 
 // --- WORDPRESS/ELEMENTOR PLAYBOOK ---
@@ -282,8 +308,8 @@ NASA WORDPRESS ADMIN KA. Ito ang mga alam mo tungkol dito:
 // pahintulot ay awtomatikong nilalaktawan — read-only-ish sa disenyo, kaya ligtas
 // iwanang tumakbo. May notification sa simula at sa dulo.
 async function headlessRun(instruction) {
-  const { apiKey, model } = await getSettings();
-  if (!apiKey) return;
+  const { apiKey, baseUrl, model } = await getSettings();
+  if (!apiKey || !baseUrl) return;
 
   notify('K3 · scheduled task', instruction);
   let tab = null;
@@ -309,6 +335,7 @@ async function headlessRun(instruction) {
     await chrome.action.setBadgeText({ text: '●' });
     for (let step = 0; step < 30; step++) {
       const { reply, error } = await callModel({
+        url: baseUrl,
         apiKey,
         model,
         messages,
@@ -508,8 +535,8 @@ chrome.notifications?.onClicked?.addListener((id) => {
 // --- STREAMING: binabasa ang SSE habang dumadating, hindi hintay nang buo ---
 // Ibinabalik ang buong assembled reply (para sa kasaysayan) habang naipapadala na
 // ang mga delta sa panel para sa live na pagpapakita.
-async function callModel({ apiKey, model, messages, tools, signal, onDelta }) {
-  const res = await fetch(API, {
+async function callModel({ url, apiKey, model, messages, tools, signal, onDelta }) {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({ model, messages, tools, max_tokens: 8192, stream: true }),
@@ -657,9 +684,14 @@ chrome.runtime.onConnect.addListener((port) => {
 
     run = { id: msg.runId, sessionId: msg.sessionId };
 
-    const { apiKey, model, mode, autopilot } = await getSettings();
+    const { apiKey, baseUrl, model, strongModel, mode, autopilot } = await getSettings();
     if (!apiKey) {
       send({ type: 'error', text: 'Walang API key. Ilagay mo sa taas ng panel.' });
+      send({ type: 'done' });
+      return;
+    }
+    if (!baseUrl) {
+      send({ type: 'error', text: 'Walang base URL ang custom provider. Ilagay mo muna sa panel.' });
       send({ type: 'done' });
       return;
     }
@@ -695,7 +727,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const rememberOnly = SCHEMA_ALL.filter((t) => t.function.name === 'remember');
       let res;
       try {
-        res = await fetch(API, {
+        res = await fetch(baseUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
@@ -742,7 +774,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     async function decideNext() {
       try {
-        const res = await fetch(API, {
+        const res = await fetch(baseUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
@@ -804,7 +836,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
         // AUTO-COMPACTION: bago mapuno ang konteksto, i-summarize ang naunang bahagi.
         if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.85) {
-          const freed = await autoCompact(messages, apiKey, routedModel, abort.signal, async (a) => {
+          const freed = await autoCompact(messages, baseUrl, apiKey, routedModel, abort.signal, async (a) => {
             await runTool('remember', a);
             send({ type: 'tool', name: 'remember', args: a });
           });
@@ -813,23 +845,24 @@ chrome.runtime.onConnect.addListener((port) => {
 
         // MODEL ROUTING: lumipat sa malakas na model kapag sunod na nag-fail o
         // lalampas sa konteksto ng maliit — sticky na sa gawaing ito.
-        if (routedModel !== STRONG_MODEL) {
+        if (routedModel !== strongModel) {
           const needStrong =
             failStreak >= 2 || totalChars(messages) > (CTX_CHARS[CHEAP_MODEL] || 110000) * 0.9;
           if (needStrong) {
-            routedModel = STRONG_MODEL;
+            routedModel = strongModel;
             if (!escalatedOnce) {
               escalatedOnce = true;
               send({
                 type: 'tool',
                 name: '_escalate',
-                args: { why: failStreak >= 2 ? 'sunod na error' : 'laki ng konteksto' },
+                args: { why: failStreak >= 2 ? 'sunod na error' : 'laki ng konteksto', to: strongModel },
               });
             }
           }
         }
 
         const { reply, error, streamed } = await callModel({
+          url: baseUrl,
           apiKey,
           model: routedModel,
           messages,
@@ -973,7 +1006,7 @@ chrome.runtime.onConnect.addListener((port) => {
           'ang buod ng lahat ng nakalap mo: ang nakita, ang napansin, ang payo mo, at kung ano ' +
           'ang natitirang hindi mo natapos.',
       });
-      const last = await fetch(API, {
+      const last = await fetch(baseUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages, max_tokens: 8192 }),
