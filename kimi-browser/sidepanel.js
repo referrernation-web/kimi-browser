@@ -15,7 +15,7 @@ const runsById = new Map();       // runId -> sessionId (para maroute ang events
 const activeRuns = new Set();     // runId ng mga tumatakbong gawain
 const unread = new Set();         // sessionId na may bagong update habang hindi aktibo
 const pendingPrompts = new Map(); // sessionId -> [{ kind:'question'|'confirm', id, ... }]
-const streams = new Map();        // runId -> { a, t, elA, elT } para sa streaming
+const streams = new Map();        // runId -> { a, t, u, elA, elT, elU } para sa streaming
 
 const uid = () =>
   crypto.randomUUID?.() || 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -185,6 +185,7 @@ function renderLog() {
 function renderEntry(e) {
   if (e.t === 'think') addThinking(e.text);
   else if (e.t === 'table') addTable(e.title, e.columns, e.rows, true, active());
+  else if (e.t === 'audit') addAudit(e.text, e.model, e.worker);
   else add(e.t, e.text);
 }
 
@@ -303,8 +304,23 @@ function fillModels(keepValue = false) {
   }
 }
 
+// Ang auditor ay may sariling provider at model — at ginagamit ang key na naka-save
+// para sa provider na iyon, kaya walang bagong key na kailangan ilagay.
+let auditOn = false;
+
+function fillAModels(keepValue = false) {
+  const p = $('auditprovider').value;
+  const list = PROVIDERS[p]?.models || [];
+  $('amodels').replaceChildren(...list.map((m) => Object.assign(document.createElement('option'), { value: m })));
+  if (!keepValue && list.length && !list.includes($('auditmodel').value)) {
+    $('auditmodel').value = list[0];
+    chrome.storage.local.set({ auditModel: $('auditmodel').value });
+  }
+}
+
 chrome.storage.local
-  .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme'])
+  .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme',
+        'audit', 'auditProvider', 'auditModel'])
   .then((d) => {
     apiKeys = d.apiKeys || {};
     // Migration: ang lumang single apiKey ay para sa Kimi.
@@ -323,6 +339,13 @@ chrome.storage.local
     $('tts').classList.toggle('on', ttsOn);
     $('sound').classList.toggle('on', soundOn);
     $('pilot').classList.toggle('on', !!d.autopilot);
+    // Auditor settings
+    auditOn = !!d.audit;
+    $('audit').classList.toggle('on', auditOn);
+    $('auditrow').style.display = auditOn ? '' : 'none';
+    $('auditprovider').value = d.auditProvider || 'tokenplan';
+    $('auditmodel').value = d.auditModel || 'qwen3.8-max';
+    fillAModels(true);
     // Puti ang default — dark lang kapag pinili ng user
     document.body.dataset.theme = d.theme || 'light';
     $('theme').textContent = document.body.dataset.theme === 'dark' ? '☀' : '☾';
@@ -434,6 +457,7 @@ const SAYS = {
   schedule_task: () => 'Nag-iiskedyul ng gawain',
   _autopilot: (a) => `🛩 Nagpapatuloy (${a.chains}/5): ${String(a.next).slice(0, 60)}`,
   _escalate: (a) => `Lumipat sa mas malakas na model — ${a.why}`,
+  _audit: (a) => `🧐 Sinusuri ni ${a.model} ang sagot…`,
 };
 const hostOf = (u) => {
   try {
@@ -644,7 +668,7 @@ async function copyTable(t, btn) {
 function liveDelta(sess, runId, kind, text) {
   let st = streams.get(runId);
   if (!st) {
-    st = { a: '', t: '', elA: null, elT: null };
+    st = { a: '', t: '', u: '', elA: null, elT: null, elU: null };
     streams.set(runId, st);
   }
   const live = sess.id === activeId;
@@ -657,6 +681,22 @@ function liveDelta(sess, runId, kind, text) {
         log.append(st.elA);
       }
       st.elA.textContent = st.a;
+      log.scrollTop = log.scrollHeight;
+    }
+  } else if (kind === 'u') {
+    // Ang audit stream — live na second opinion mula sa ibang AI.
+    st.u += text;
+    if (live) {
+      if (!st.elU) {
+        st.elU = document.createElement('div');
+        st.elU.className = 'msg audit live';
+        const head = document.createElement('div');
+        head.className = 'audit-head';
+        head.textContent = '🧐 Second opinion…';
+        st.elU.append(head, document.createTextNode(''));
+        log.append(st.elU);
+      }
+      st.elU.childNodes[1].textContent = st.u;
       log.scrollTop = log.scrollHeight;
     }
   } else {
@@ -674,6 +714,38 @@ function liveDelta(sess, runId, kind, text) {
       log.scrollTop = log.scrollHeight;
     }
   }
+}
+
+// Ang audit bubble na may button na nagpapasa ng puna pabalik sa worker —
+// dito nagkakaroon ng usapan ang dalawang AI.
+function addAudit(text, model, worker) {
+  const el = document.createElement('div');
+  el.className = 'msg audit';
+  const head = document.createElement('div');
+  head.className = 'audit-head';
+  head.textContent = `🧐 Second opinion — ${model || 'auditor'}${worker ? ` (ang worker: ${worker})` : ''}`;
+  el.append(head, document.createTextNode(text));
+
+  const btn = document.createElement('button');
+  btn.className = 'audit-pass';
+  btn.textContent = '✉ Ipasa ang puna kay worker';
+  btn.onclick = () => {
+    $('ask').value = `Ang sabi ng auditor na si ${model}:\n${text}\n\nAyusin o ituloy mo ang gawain batay sa puna na ito.`;
+    btn.disabled = true;
+    btn.textContent = 'Naipasa na ✓';
+    submit(false);
+  };
+  el.append(btn);
+  log.append(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function auditEnd(sess, runId, model, worker) {
+  const st = streams.get(runId);
+  if (!st || !st.u) return;
+  streams.delete(runId);
+  st.elU?.remove();
+  emit(sess, { t: 'audit', text: st.u, model, worker });
 }
 
 function streamEnd(sess, runId) {
@@ -702,6 +774,10 @@ function onMessage(m) {
       return liveDelta(sess, m.runId, 'a', m.text);
     case 'thinking_delta':
       return liveDelta(sess, m.runId, 't', m.text);
+    case 'audit_delta':
+      return liveDelta(sess, m.runId, 'u', m.text);
+    case 'audit_end':
+      return auditEnd(sess, m.runId, m.model, m.worker);
     case 'stream_end':
       return streamEnd(sess, m.runId);
     case 'thinking':
@@ -1082,6 +1158,7 @@ $('export').onclick = () => {
     else if (e.t === 'assistant') lines.push('## Kimi K3', '', e.text, '');
     else if (e.t === 'tool') lines.push(`> ${e.text}`, '');
     else if (e.t === 'error') lines.push(`> ⚠ ${e.text}`, '');
+    else if (e.t === 'audit') lines.push(`## 🧐 Second opinion (${e.model || 'auditor'})`, '', e.text, '');
     else if (e.t === 'table') {
       lines.push(
         `### ${e.title}`,
@@ -1155,6 +1232,28 @@ $('mem').onclick = async () => {
   log.append(box);
   log.scrollTop = log.scrollHeight;
 };
+
+// --- AUDIT (second opinion mula sa ibang AI) ---
+$('audit').onclick = () => {
+  auditOn = !auditOn;
+  $('audit').classList.toggle('on', auditOn);
+  $('auditrow').style.display = auditOn ? '' : 'none';
+  chrome.storage.local.set({ audit: auditOn });
+  const s = active();
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: auditOn
+        ? `🧐 Second opinion ON — si ${$('auditmodel').value} ang mag-audit ng bawat huling sagot (ibang provider, sabay na tawag)`
+        : '🧐 Second opinion OFF',
+    });
+};
+$('auditprovider').onchange = () => {
+  chrome.storage.local.set({ auditProvider: $('auditprovider').value });
+  fillAModels();
+};
+$('auditmodel').onchange = () =>
+  chrome.storage.local.set({ auditModel: $('auditmodel').value.trim() });
 
 // --- AUTOPILOT: kusang nagpapatuloy sa susunod na hakbang ---
 $('pilot').onclick = () => {
