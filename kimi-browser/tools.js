@@ -157,7 +157,7 @@ export const SCHEMA = [
     function: {
       name: 'screenshot',
       description:
-        'Tingnan ang working tab bilang larawan. GAMITIN ITO kapag hindi sapat ang teksto: para tingnan kung nagbago ang estado pagkatapos ng pagpindot, para sa UI na puro icon, para sa chart, larawan, video, canvas, o kahit anong nakikita pero hindi nababasa. Kapag dalawang beses nang nabigo ang read_page na sagutin ang tanong mo, tumingin ka na sa halip na sumubok muli. Ipinapakita nito sandali ang working tab sa user.',
+        'Tingnan ang working tab bilang larawan. GAMITIN ITO kapag hindi sapat ang teksto: para tingnan kung nagbago ang estado pagkatapos ng pagpindot, para sa UI na puro icon, para sa chart, larawan, video, canvas, o kahit anong nakikita pero hindi nababasa. Kapag dalawang beses nang nabigo ang read_page na sagutin ang tanong mo, tumingin ka na sa halip na sumubok muli. Ipinapakita nito sandali ang working tab sa user (isang kisap lang, ibabalik agad ang dating tab).',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
@@ -236,7 +236,8 @@ export const SCHEMA = [
     type: 'function',
     function: {
       name: 'switch_tab',
-      description: 'Gawing working tab ang isang tab sa group gamit ang id mula sa list_tabs.',
+      description:
+        'Gawing working tab ang isang tab sa group gamit ang id mula sa list_tabs. Hindi ito gumagalaw ng focus ng user — sa background lang nagpapalit.',
       parameters: {
         type: 'object',
         properties: { tabId: { type: 'number' } },
@@ -248,7 +249,8 @@ export const SCHEMA = [
     type: 'function',
     function: {
       name: 'new_tab',
-      description: 'Magbukas ng bagong tab sa isang URL. Awtomatiko itong papasok sa scope group mo.',
+      description:
+        'Magbukas ng bagong tab sa isang URL, SA BACKGROUND LANG — hindi aagawin ang focus ng user. Awtomatiko itong papasok sa scope group mo.',
       parameters: {
         type: 'object',
         properties: { url: { type: 'string' } },
@@ -416,14 +418,18 @@ export async function runTool(name, args) {
     case 'screenshot': {
       const tab = await workingTab();
       // Ang captureVisibleTab ay kumukuha ng NAKIKITANG tab, kaya kailangan munang
-      // iharap ang working tab. Sandali lang ito, at sinasabi sa user sa tool
-      // description na mangyayari ito.
+      // iharap ang working tab — pero ibinabalik natin AGAD ang tab ng user, kaya
+      // isang kisap lang ito at hindi nagnanakaw ng focus.
+      const [prev] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
       await chrome.tabs.update(tab.id, { active: true });
       await settle(350);
       const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: 'jpeg',
         quality: 60,
       });
+      if (prev && prev.id !== tab.id) {
+        await chrome.tabs.update(prev.id, { active: true }).catch(() => {});
+      }
       return { image: dataUrl, url: tab.url };
     }
     case 'generate_image': {
@@ -490,12 +496,15 @@ export async function runTool(name, args) {
     }
     case 'switch_tab': {
       await assertInScope(args.tabId);
-      await chrome.tabs.update(args.tabId, { active: true });
+      // WALANG activation: ang DOM operations ay gumagana sa background tabs, kaya
+      // hindi na kailangang agawin ang focus ng user — ito ang lalamangan natin
+      // sa screenshot-based na mga agent na sa active tab lang kumikilos.
       scope.workingTabId = args.tabId;
-      return { ok: true };
+      return { ok: true, note: 'Working tab lang ang pinalitan — hindi gumalaw ang focus ng user.' };
     }
     case 'new_tab': {
-      const t = await chrome.tabs.create({ url: args.url, active: true });
+      // active:false — background tab para hindi maistorbo ang tinitingnan ng user.
+      const t = await chrome.tabs.create({ url: args.url, active: false });
       if (scope.groupId != null) {
         await chrome.tabs.group({ tabIds: [t.id], groupId: scope.groupId });
       }
