@@ -99,7 +99,7 @@
         font-size: 12px; line-height: 1;
       }
       .tab button:hover { color: var(--err); background: none; }
-      #newtab { flex: none; padding: 4px 9px; margin-bottom: 2px; }
+      #tabs > button { flex: none; padding: 4px 7px; margin-bottom: 2px; }
 
       #log { flex: 1; overflow-y: auto; padding: 11px; display: flex; flex-direction: column; gap: 9px; }
       #log > * { animation: rise .18s ease-out; }
@@ -151,7 +151,8 @@
       #send { width: 42px; font-size: 15px; }
       #send:disabled { opacity: .55; cursor: default; }
       #mic.on, #tap.on { background: var(--err); border-color: var(--err); animation: breathe 1.6s infinite; }
-      #tts.on, #sound.on { background: color-mix(in srgb, var(--accent) 18%, var(--field)); border-color: var(--accent); }
+      #tts.on, #sound.on, #pilot.on { background: color-mix(in srgb, var(--accent) 18%, var(--field)); border-color: var(--accent); }
+      #rec.on { background: var(--err); border-color: var(--err); animation: breathe 1.6s infinite; }
       @keyframes breathe { 50% { opacity: .55; } }
     </style>
   </head>
@@ -197,6 +198,9 @@
 
     <div id="tabs">
       <div id="tabstrip"></div>
+      <button id="pilot" title="Autopilot — kusang nagpapatuloy sa susunod na hakbang (max 5 na kadena)">🛩</button>
+      <button id="rec" title="Record — i-record ang mga pindot mo sa working tab bilang shortcut">⏺</button>
+      <button id="sched" title="Mga naka-iskedyul na gawain">⏰</button>
       <button id="newtab" title="Bagong usapan">✚</button>
     </div>
 
