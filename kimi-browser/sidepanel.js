@@ -187,7 +187,52 @@ function renderEntry(e) {
   else if (e.t === 'table') addTable(e.title, e.columns, e.rows, true, active());
   else if (e.t === 'audit') addAudit(e.text, e.model, e.worker);
   else if (e.t === 'vote') addVote(e.avg, e.pass, e.n);
+  else if (e.t === 'plan') addPlan(e.steps, e.done);
   else add(e.t, e.text, e.model);
+}
+
+// --- PLAN CHECKLIST: ang plano ng agent bilang umuusad na checklist ---
+function addPlan(steps = [], done = 0) {
+  const box = document.createElement('div');
+  box.className = 'planbox';
+  const b = document.createElement('b');
+  b.textContent = `📋 PLANO — ${Math.min(done, steps.length)} sa ${steps.length} tapos`;
+  const ol = document.createElement('ol');
+  steps.forEach((s, i) => {
+    const li = document.createElement('li');
+    const st = document.createElement('span');
+    st.className = 'st ' + (i < done ? 'done' : i === done ? 'doing' : 'todo');
+    st.textContent = i < done ? '✓' : i === done ? '▸' : '○';
+    const tx = document.createElement('span');
+    tx.textContent = s;
+    if (i !== done) li.className = 'gray';
+    li.append(st, tx);
+    ol.append(li);
+  });
+  const bar = document.createElement('div');
+  bar.className = 'planbar';
+  const fill = document.createElement('i');
+  fill.style.width = steps.length ? `${Math.round((Math.min(done, steps.length) / steps.length) * 100)}%` : '0%';
+  bar.append(fill);
+  box.append(b, ol, bar);
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+}
+
+// Isang planbox lang kada gawain: kapag tumawag ulit ang model ng `plan`, ang HULING
+// plan entry sa transcript ang ina-update — hindi nagdadagdag ng bagong box.
+function planUpdate(sess, args) {
+  const steps = (args.steps || []).map(String).slice(0, 8);
+  const done = Math.max(0, Math.round(args.done || 0));
+  const last = [...sess.transcript].reverse().find((e) => e.t === 'plan');
+  if (last) {
+    last.steps = steps;
+    last.done = done;
+    save();
+    if (sess.id === activeId) renderLog();
+  } else {
+    emit(sess, { t: 'plan', steps, done });
+  }
 }
 
 // Itala ang entry sa session (aktibo man o hindi), tapos i-render kung aktibo.
@@ -322,16 +367,19 @@ async function refreshModels(p) {
   const chat = p === 'custom' ? $('baseurl').value.trim() : CHAT_URLS[p];
   const key = apiKeys[p] || '';
   const url = (chat || '').replace(/\/chat\/completions\/?$/, '/models');
-  if (!key || !url || url === chat) return;
+  if (!key || !url || url === chat) return null;
   try {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
-    if (!res.ok) return; // hindi lahat ng provider ay may /models — hayaan ang fallback
+    if (!res.ok) return null; // hindi lahat ng provider ay may /models — hayaan ang fallback
     const ids = (((await res.json()).data) || []).map((m) => m.id).filter(Boolean).sort();
-    if (!ids.length) return;
+    if (!ids.length) return null;
     (PROVIDERS[p] ||= { keyHint: 'API key', models: [] }).models = ids;
     if (p === curProvider) fillModels(true);
     if (p === $('auditprovider').value) fillAModels(true);
-  } catch {} // ang suggestions ay palamuti — hindi dapat makasira
+    return ids.length; // para masabi ng "I-test" kung gumagana ang key
+  } catch {
+    return null; // ang suggestions ay palamuti — hindi dapat makasira
+  }
 }
 
 function fillModels(keepValue = false) {
@@ -359,7 +407,7 @@ function fillAModels(keepValue = false) {
 
 chrome.storage.local
   .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme',
-        'audit', 'auditProvider', 'auditModel', 'groqKey'])
+        'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach'])
   .then((d) => {
     apiKeys = d.apiKeys || {};
     // Migration: ang lumang single apiKey ay para sa Kimi; ang groqKey ng Whisper
@@ -380,6 +428,7 @@ chrome.storage.local
     $('tts').classList.toggle('on', ttsOn);
     $('sound').classList.toggle('on', soundOn);
     $('pilot').classList.toggle('on', !!d.autopilot);
+    $('teach').classList.toggle('on', !!d.teach);
     // Auditor settings
     auditOn = !!d.audit;
     $('audit').classList.toggle('on', auditOn);
@@ -393,7 +442,78 @@ chrome.storage.local
     syncChip();
     syncMenuDot();
     showHint();
+    // Unang bukas na walang key: 3-hakbang na setup card, hindi error message.
+    if (!$('key').value) addSetupCard();
   });
+
+// --- ONBOARDING: ang unang karanasan ay gabay, hindi "Walang API key" na error ---
+const PROVIDER_LABELS = { kimi: 'Kimi', groq: 'Groq ⚡', tokenplan: 'Token Plan', dashscope: 'Qwen', custom: 'Custom' };
+
+function addSetupCard() {
+  if (log.querySelector('.setup')) return;
+  const srow = (n) => {
+    const d = document.createElement('div');
+    d.className = 'srow';
+    const nn = document.createElement('span');
+    nn.className = 'n';
+    nn.textContent = n;
+    d.append(nn);
+    return d;
+  };
+  const card = document.createElement('div');
+  card.className = 'setup';
+  const b = document.createElement('b');
+  b.textContent = 'Maligayang pagdating! 3 hakbang lang bago tayo umandar:';
+  card.append(b);
+
+  const r2 = srow(2); // ginagamit ng chips ng hakbang 1, kaya buo na agad
+  const kin = document.createElement('input');
+  kin.type = 'password';
+  kin.placeholder = PROVIDERS[curProvider].keyHint;
+  kin.style.flex = '1';
+  const test = document.createElement('button');
+  test.className = 'try';
+  test.textContent = 'I-test';
+  test.onclick = async () => {
+    apiKeys[curProvider] = kin.value.trim();
+    await chrome.storage.local.set({ apiKeys });
+    $('key').value = kin.value.trim();
+    test.textContent = '…';
+    const n = await refreshModels(curProvider);
+    test.textContent = n ? `✓ ${n} model` : '✗ subukan ulit';
+  };
+  r2.append(kin, test);
+
+  const r1 = srow(1);
+  for (const [p, label] of Object.entries(PROVIDER_LABELS)) {
+    const c = document.createElement('button');
+    c.className = 'provchip' + (p === curProvider ? ' sel' : '');
+    c.textContent = label;
+    c.onclick = () => {
+      $('provider').value = p;
+      $('provider').onchange();
+      for (const x of r1.querySelectorAll('.provchip')) x.classList.toggle('sel', x === c);
+      kin.placeholder = PROVIDERS[p].keyHint;
+      kin.value = apiKeys[p] || '';
+    };
+    r1.append(c);
+  }
+
+  const r3 = srow(3);
+  for (const t of ['Buksan ang google.com', 'Basahin ang page na ito']) {
+    const c = document.createElement('button');
+    c.className = 'try';
+    c.textContent = t;
+    c.onclick = () => {
+      $('ask').value = t;
+      $('ask').focus();
+    };
+    r3.append(c);
+  }
+
+  card.append(r1, r2, r3);
+  log.append(card);
+}
 
 // --- ⚙ SETTINGS at ⋯ MENU: nakatago hanggang kailangan (malinis na panel) ---
 $('gear').onclick = () => {
@@ -417,7 +537,9 @@ document.addEventListener('click', (e) => {
 const syncMenuDot = () =>
   $('menubtn').classList.toggle(
     'has-on',
-    $('audit').classList.contains('on') || $('pilot').classList.contains('on')
+    $('audit').classList.contains('on') ||
+      $('pilot').classList.contains('on') ||
+      $('teach').classList.contains('on')
   );
 
 // Ang model chip sa header — laging kita kung sino ang worker ngayon.
@@ -437,6 +559,14 @@ $('key').onchange = () => {
   apiKeys[curProvider] = $('key').value.trim();
   chrome.storage.local.set({ apiKeys });
   refreshModels(curProvider); // bagong key — baka bukas na ang /models
+};
+$('testkey').onclick = async () => {
+  apiKeys[curProvider] = $('key').value.trim();
+  await chrome.storage.local.set({ apiKeys });
+  $('testkey').textContent = '…';
+  const n = await refreshModels(curProvider);
+  $('testkey').textContent = n ? `✓ ${n}` : '✗';
+  setTimeout(() => ($('testkey').textContent = 'I-test'), 4000);
 };
 $('model').onchange = () => {
   chrome.storage.local.set({ model: $('model').value.trim() });
@@ -882,6 +1012,7 @@ function onMessage(m) {
       emit(sess, { t: 'assistant', text: m.text, model: m.model });
       return maybeSpeak(m.text);
     case 'tool':
+      if (m.name === 'plan') return planUpdate(sess, m.args || {});
       return emit(sess, { t: 'tool', text: describe(m.name, m.args) });
     case 'tool_result':
       // Ang tagumpay ay tahimik — ang bawat "ok" ay ingay lang. Ang pagkabigo lang ang nagsasalita.
@@ -972,40 +1103,101 @@ function stopClock() {
   $('timer').textContent = '';
 }
 
-// --- USAGE TRACKING: ilang run at segundo ang ginugol ng bawat model ---
+// --- USAGE TRACKING: TUMPAK na tokens (galing sa API mismo) kada model ---
+// Bawat tawag sa API ay may usage event na may in/out tokens; ang dulo ng takbo ay
+// may seconds at runs. Ipon lahat dito, hiwalay ang worker sa auditor.
 async function trackUsage(m) {
   if (!m.model) return;
   const { usage = {} } = await chrome.storage.local.get('usage');
-  const u = (usage[m.model] ||= { calls: 0, seconds: 0 });
-  u.calls++;
+  const u = (usage[m.model] ||= { calls: 0, runs: 0, seconds: 0, tin: 0, tout: 0, role: '' });
+  u.calls += m.calls || 0;
+  u.runs += m.runs || 0;
   u.seconds += m.seconds || 0;
+  u.tin += m.in || 0;
+  u.tout += m.out || 0;
+  if (m.role) u.role = m.role;
   await chrome.storage.local.set({ usage });
 }
 
 const fmtSecs = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
+const fmtTok = (n) =>
+  n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'K' : String(n);
 
 $('stats').onclick = async () => {
   const { usage = {} } = await chrome.storage.local.get('usage');
-  const entries = Object.entries(usage).sort((a, b) => b[1].seconds - a[1].seconds);
+  const entries = Object.entries(usage).sort(
+    (a, b) => b[1].tin + b[1].tout - (a[1].tin + a[1].tout) || b[1].seconds - a[1].seconds
+  );
   const box = document.createElement('div');
-  box.className = 'confirm';
+  box.className = 'usagebox';
+
+  const head = document.createElement('div');
+  head.className = 'uhead';
   const b = document.createElement('b');
-  const total = entries.reduce((n, [, u]) => n + u.seconds, 0);
-  b.textContent = entries.length
-    ? `📊 Usage — ${entries.length} model, ${fmtSecs(total)} kabuuan`
-    : 'Wala pang naitatalang usage.';
-  box.append(b);
-  for (const [model, u] of entries) {
-    const row = document.createElement('div');
-    row.className = 'dim';
-    row.style.marginTop = '4px';
-    row.textContent = `${model} — ${u.calls} run · ${fmtSecs(u.seconds)}`;
-    box.append(row);
-  }
-  if (entries.length) {
+  b.textContent = '📊 Usage';
+  head.append(b);
+  box.append(head);
+
+  if (!entries.length) {
+    const d = document.createElement('div');
+    d.className = 'dim';
+    d.textContent = 'Wala pang naitatalang usage — magpatakbo muna ng gawain.';
+    box.append(d);
+  } else {
+    const tin = entries.reduce((n, [, u]) => n + u.tin, 0);
+    const tout = entries.reduce((n, [, u]) => n + u.tout, 0);
+    const runs = entries.reduce((n, [, u]) => n + u.runs, 0);
+    const totals = document.createElement('div');
+    totals.className = 'totals';
+    for (const [n, l] of [[fmtTok(tin), 'Input tokens'], [fmtTok(tout), 'Output tokens'], [String(runs), 'Mga takbo']]) {
+      const s = document.createElement('div');
+      s.className = 'stat';
+      const nn = document.createElement('div');
+      nn.className = 'n';
+      nn.textContent = n;
+      const ll = document.createElement('div');
+      ll.className = 'l';
+      ll.textContent = l;
+      s.append(nn, ll);
+      totals.append(s);
+    }
+    box.append(totals);
+
+    const max = Math.max(...entries.map(([, u]) => u.tin + u.tout), 1);
+    for (const [model, u] of entries) {
+      const row = document.createElement('div');
+      row.className = 'urow';
+      const mdl = document.createElement('div');
+      mdl.className = 'mdl';
+      const nm = document.createElement('span');
+      nm.textContent = model;
+      nm.title = model;
+      mdl.append(nm);
+      if (u.role) {
+        const r = document.createElement('span');
+        r.className = 'role ' + (u.role === 'auditor' ? 'a' : 'w');
+        r.textContent = u.role === 'auditor' ? 'AUDITOR' : 'WORKER';
+        mdl.append(r);
+      }
+      const nums = document.createElement('span');
+      nums.className = 'nums';
+      const bits = [];
+      if (u.runs) bits.push(`${u.runs} takbo`);
+      if (u.calls) bits.push(`${u.calls} tawag`);
+      if (u.seconds) bits.push(fmtSecs(u.seconds));
+      bits.push(`${fmtTok(u.tin)} in`, `${fmtTok(u.tout)} out`);
+      nums.textContent = bits.join(' · ');
+      const bar = document.createElement('div');
+      bar.className = 'ubar';
+      const fill = document.createElement('i');
+      fill.style.width = `${Math.max(2, Math.round(((u.tin + u.tout) / max) * 100))}%`;
+      bar.append(fill);
+      row.append(mdl, nums, bar);
+      box.append(row);
+    }
+
     const reset = document.createElement('button');
     reset.textContent = 'I-reset ang stats';
-    reset.style.marginTop = '7px';
     reset.onclick = async () => {
       await chrome.storage.local.set({ usage: {} });
       box.remove();
@@ -1434,6 +1626,21 @@ $('pilot').onclick = () => {
       text: on
         ? '🛩 Autopilot ON — pagkatapos ng gawain, kusang magpapatuloy sa susunod na hakbang (max 5, may permission gates pa rin)'
         : '🛩 Autopilot OFF',
+    });
+};
+
+$('teach').onclick = () => {
+  const on = !$('teach').classList.contains('on');
+  $('teach').classList.toggle('on', on);
+  syncMenuDot();
+  chrome.storage.local.set({ teach: on });
+  const s = active();
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: on
+        ? '🎓 Teach ON — may captions na sa page: bawat galaw at ang dahilan nito, para matuto ang nanonood'
+        : '🎓 Teach OFF',
     });
 };
 

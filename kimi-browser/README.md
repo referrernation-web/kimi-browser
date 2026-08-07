@@ -1,5 +1,20 @@
 # Kimi K3 Browser
 
+## Anong bago sa v0.7.0 (teaching remote + malinaw na lahat)
+
+- **🎓 Teach mode** — captions sa baba ng page habang nagtatrabaho ang agent: anong
+  ginagawa + bakit, parang subtitles ng screen-share. Ang nanonood, natututo mismo
+  kung paano ginagawa ang task. I-on sa ⋯ menu.
+- **Pangalan ng element, hindi ref** — "Pinipindot ang “Mga Filter”" na ang lumalabas
+  sa banner at captions, hindi na "ref_12".
+- **📋 Plan tool + checklist** — inilalatag ng agent ang plano bilang checklist na
+  may umuusad na check marks at progress bar sa panel. Laging alam mo kung nasaan na.
+- **Onboarding sa unang bukas** — 3-hakbang na setup card (provider → key → subukan)
+  na may "I-test" button, sa halip na error message. May "I-test" din sa ⚙ settings.
+- **📊 Tumpak na usage** — eksaktong input/output tokens mula mismo sa API kada tawag,
+  hiwalay ang worker sa auditor, may malalaking totals at bar kada model.
+- Mas malinaw na mode labels (🤝 Adaptive, ✋ Manual, ⚡ Auto, 👀 Plan, 🎧 Coach, 🚀 Bypass).
+
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 

@@ -181,6 +181,48 @@
       #mic.on, #tap.on { background: var(--err); border-color: var(--err); animation: breathe 1.6s infinite; }
       @keyframes breathe { 50% { opacity: .55; } }
 
+      /* --- PLAN CHECKLIST bubble — ang plano ng agent, may umuusad na check marks --- */
+      .planbox { border: 1px solid var(--accent); border-radius: 9px; padding: 9px 11px; }
+      .planbox b { color: var(--accent); font-size: 11px; letter-spacing: .03em; }
+      .planbox ol { list-style: none; margin: 5px 0 0; padding: 0; display: grid; gap: 3px; }
+      .planbox li { display: flex; gap: 7px; align-items: baseline; }
+      .planbox .st { font: 700 11px/1.4 ui-monospace, monospace; flex: none; width: 14px; }
+      .planbox .done { color: var(--ask); }
+      .planbox .doing { color: var(--accent); }
+      .planbox .todo, .planbox li.gray { color: var(--dim); }
+      .planbar { height: 4px; border-radius: 99px; background: var(--line); margin-top: 7px; overflow: hidden; }
+      .planbar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s; }
+
+      /* --- ONBOARDING card sa unang bukas — 3 hakbang bago umandar --- */
+      .setup { border: 1px dashed var(--accent); border-radius: 10px; padding: 12px; display: grid; gap: 9px; }
+      .setup b { color: var(--accent); }
+      .setup .srow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .setup .n {
+        width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center;
+        background: var(--accent); color: #fff; font: 700 11px/1 ui-monospace, monospace;
+      }
+      .setup .provchip { border-radius: 99px; padding: 3px 11px; font-size: 11.5px; }
+      .setup .provchip.sel { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+      .setup input { font-family: ui-monospace, monospace; font-size: 11px; }
+      .setup .try { border-color: var(--accent); color: var(--accent); border-radius: 99px; font-size: 11.5px; }
+
+      /* --- USAGE dashboard — malaki, malinaw, tumpak --- */
+      .usagebox { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--panel); display: grid; gap: 11px; }
+      .usagebox .uhead { display: flex; align-items: baseline; gap: 8px; }
+      .usagebox .totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .usagebox .stat { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
+      .usagebox .stat .n { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+      .usagebox .stat .l { font: 600 9px/1.6 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+      .usagebox .urow { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: baseline; }
+      .usagebox .urow .mdl { font-weight: 600; font-size: 12px; display: flex; gap: 6px; align-items: center; min-width: 0; }
+      .usagebox .urow .mdl span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .usagebox .role { font: 700 8.5px/1.5 ui-monospace, monospace; letter-spacing: .06em; border-radius: 4px; padding: 0 5px; flex: none; }
+      .usagebox .role.w { background: color-mix(in srgb, var(--accent) 15%, var(--bg)); color: var(--accent); }
+      .usagebox .role.a { background: color-mix(in srgb, var(--ask) 15%, var(--bg)); color: var(--ask); }
+      .usagebox .nums { font: 10.5px/1.5 ui-monospace, monospace; color: var(--dim); font-variant-numeric: tabular-nums; }
+      .usagebox .ubar { grid-column: 1 / -1; height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
+      .usagebox .ubar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+
       /* --- AUDIT / SECOND BRAIN bubble --- */
       .msg.audit { border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
       .msg.audit.live { border-style: solid; }
@@ -211,12 +253,12 @@
         </svg>
         <span id="statuslight" title="Tumatakbo ang agent"></span>
         <select id="mode" style="width:auto;flex:none">
-          <option value="adaptive">Adaptive</option>
-          <option value="manual">Manual</option>
-          <option value="auto">Auto</option>
-          <option value="plan">Plan</option>
-          <option value="coach">Coach</option>
-          <option value="bypass">Bypass</option>
+          <option value="adaptive">🤝 Adaptive</option>
+          <option value="manual">✋ Manual</option>
+          <option value="auto">⚡ Auto</option>
+          <option value="plan">👀 Plan</option>
+          <option value="coach">🎧 Coach</option>
+          <option value="bypass">🚀 Bypass</option>
         </select>
         <span id="hint" class="dim" style="flex:1"></span>
         <span id="modelchip" title="Ang kasalukuyang worker model">k3</span>
@@ -225,6 +267,7 @@
       <div id="settings" style="display:none;gap:7px">
         <div class="row">
           <input id="key" type="password" placeholder="Kimi API key (sk-kimi-...)" />
+          <button id="testkey" title="Subukan kung gumagana ang key">I-test</button>
           <select id="provider" title="Provider" style="width:auto;flex:none">
             <option value="kimi">Kimi</option>
             <option value="groq">Groq (mabilis)</option>
@@ -265,6 +308,7 @@
         <div class="mi"><button id="tap" title="Tunog ng tab → Whisper">🔊</button><span>Tab audio</span></div>
         <div class="mi"><button id="audit" title="Second brain / voting">🧐</button><span>2nd brain</span></div>
         <div class="mi"><button id="pilot" title="Autopilot">🛩</button><span>Autopilot</span></div>
+        <div class="mi"><button id="teach" title="Teaching captions sa page — para matuto ang nanonood">🎓</button><span>Teach</span></div>
         <div class="mi"><button id="rec" title="Record shortcut">⏺</button><span>Record</span></div>
         <div class="mi"><button id="sched" title="Scheduled tasks">⏰</button><span>Schedule</span></div>
         <div class="mi"><button id="stats" title="Usage per model">📊</button><span>Usage</span></div>

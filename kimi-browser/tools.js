@@ -119,6 +119,26 @@ export const SCHEMA = [
   {
     type: 'function',
     function: {
+      name: 'plan',
+      description:
+        'Ilatag o i-update ang plano ng gawain. Tawagin ito sa SIMULA ng anumang gawaing 3+ hakbang (bago ang unang aksyon), at tawagin MULI tuwing may natapos na hakbang — parehong steps, bagong done. Lumalabas ito sa user bilang checklist na may progress, kaya laging alam niya kung nasaan ka na. Kapag nagbago ang plano, ipasa ang bagong steps.',
+      parameters: {
+        type: 'object',
+        properties: {
+          steps: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '3-6 na maikling hakbang, sa pagkakasunod.',
+          },
+          done: { type: 'number', description: 'Ilang hakbang na ang TAPOS (0 sa simula).' },
+        },
+        required: ['steps', 'done'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'remember',
       description:
         'Itala ang isang bagay na magiging kapaki-pakinabang sa susunod. Gamitin ito kapag may natuklasan kang hindi halata at magtitipid ng hakbang sa susunod — kung saan nakatago ang isang buton, ilang hakbang ang checkout, anong pangalan ang ginagamit ng site sa isang bagay. Gamitin din para sa mga bagay na sinabi ng user tungkol sa sarili o sa gusto niya. HUWAG itala ang panandaliang bagay: presyo, bilang ng resulta, laman ng page ngayon.',
@@ -422,18 +442,24 @@ export function waitForLoad(tabId, timeoutMs = 10000) {
 }
 
 // Ipinapakita ang cursor sa element bago ang aksyon — pero WALANG artipisyal na hintay:
-// ang injection mismo (~40ms) ang sapat nang biswal na senyales.
-async function point(ref) {
+// ang injection mismo (~40ms) ang sapat nang biswal na senyales. Ang verb ang lumalabas
+// sa banner at teaching caption kasama ang tunay na pangalan ng element.
+async function point(ref, verb) {
   try {
-    // Walang artipisyal na hintay — ang injection mismo (~40ms) ang sapat nang
-    // biswal na senyales. Ang 150ms na pause bago ang BAWAT aksyon ay purong aksaya.
-    await inPage(overlay, ['point', ref]);
+    await inPage(overlay, ['point', { ref, verb }]);
   } catch {} // ang palamuti ay hindi dapat magpabagsak ng aksyon
 }
 
-export async function setOverlay(on) {
+export async function setOverlay(on, teach) {
   try {
-    await inPage(overlay, [on ? 'on' : 'off', null]);
+    await inPage(overlay, [on ? 'on' : 'off', { teach: !!teach }]);
+  } catch {}
+}
+
+// Teaching caption sa baba ng page — ang salaysay ng agent para sa nanonood.
+export async function setCaption(text) {
+  try {
+    await inPage(overlay, ['cap', String(text).slice(0, 140)]);
   } catch {}
 }
 
@@ -506,6 +532,9 @@ export async function workingUrl() {
 
 export async function runTool(name, args) {
   switch (name) {
+    case 'plan':
+      // Ang panel ang nagre-render ng checklist mula sa tool event — dito, tala lang.
+      return { ok: true, note: 'Naitala ang plano — makikita ito ng user. Ituloy mo na.' };
     case 'remember':
       return remember(args.scope, args.note, await currentDomain());
     case 'read_page':
@@ -527,7 +556,7 @@ export async function runTool(name, args) {
       return res.result;
     }
     case 'paste_large':
-      await point(args.ref);
+      await point(args.ref, 'Sinusulatan');
       return inPage(pasteLarge, [args.ref, args.text, args.chunk]);
     case 'run_shortcut': {
       const { shortcuts = {} } = await chrome.storage.local.get('shortcuts');
@@ -614,7 +643,7 @@ export async function runTool(name, args) {
       // VERIFICATION LOOP: kunan ng signature bago at pagkatapos — makikita agad ng
       // model kung tumalab ang click, nang hindi kailangang mag-read_page muli.
       const before = await inPage(pageSig).catch(() => null);
-      await point(args.ref);
+      await point(args.ref, 'Pinipindot');
       const out = await inPage(clickRef, [args.ref]);
       // Hintayin kung magna-navigate; kung hindi, maikling settle lang.
       await settle(200);
@@ -634,7 +663,7 @@ export async function runTool(name, args) {
       return out;
     }
     case 'type':
-      await point(args.ref);
+      await point(args.ref, 'Sinusulatan');
       return inPage(typeRef, [args.ref, args.text, !!args.submit]);
     case 'scroll':
       return inPage(scrollPage, [args.direction, args.amount]);

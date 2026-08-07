@@ -159,7 +159,7 @@ function sendEnter(el) {
 // itaas na may TIMER at LIVE STATUS ng ginagawa ng agent, at cursor na gumagalaw
 // papunta sa bawat element bago ito pindutin. Nasa shadow DOM para hindi maabot ng
 // CSS ng site, at pointer-events:none para hindi mahadlangan ang totoong pag-click.
-export function overlay(action, ref) {
+export function overlay(action, arg) {
   const ID = '__kimi_overlay';
   let host = document.getElementById(ID);
 
@@ -217,6 +217,19 @@ export function overlay(action, ref) {
           30% { opacity:1; }
           100% { opacity:0; transform:translateY(-16px) scale(1); }
         }
+        /* TEACHING CAPTIONS: parang subtitles ng screen-share — anong ginagawa at bakit,
+           para may matutunan ang nanonood habang nagtatrabaho ang agent. */
+        .caps {
+          position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
+          display:flex; flex-direction:column; gap:5px; width:min(92vw, 560px);
+        }
+        .cap {
+          background:#201a38ee; color:#fff; border-left:3px solid #7c5cff;
+          border-radius:8px; padding:7px 12px; font:12.5px/1.45 ui-sans-serif,system-ui,sans-serif;
+          box-shadow:0 4px 16px #00000055; animation:capin .25s ease-out;
+        }
+        .cap.old { opacity:.45; }
+        @keyframes capin { from { opacity:0; transform:translateY(6px); } }
       </style>
       <div class="frame"></div>
       <div class="bar"><span class="dot"></span><b>Kimi K3</b><span class="st"></span><span class="tm"></span></div>
@@ -224,7 +237,8 @@ export function overlay(action, ref) {
       <div class="ring"></div>
       <div class="spark" style="left:12%"></div>
       <div class="spark" style="left:50%;animation-delay:.55s"></div>
-      <div class="spark" style="left:86%;animation-delay:1.1s"></div>`;
+      <div class="spark" style="left:86%;animation-delay:1.1s"></div>
+      <div class="caps"></div>`;
     document.documentElement.append(host);
 
     // Ang timer sa banner — nagsisimula kapag pumasok ang agent, humihinto kapag tapos.
@@ -236,16 +250,47 @@ export function overlay(action, ref) {
     }, 1000);
   }
 
+  // Ang teach flag ay dala ng 'on' — kapag naka-🎓, may captions sa baba ng page.
+  if (action === 'on' && arg && typeof arg === 'object') host.dataset.teach = arg.teach ? '1' : '';
+
+  const addCap = (text) => {
+    if (!host.dataset.teach) return;
+    const caps = host.shadowRoot.querySelector('.caps');
+    for (const c of caps.children) c.classList.add('old');
+    const d = document.createElement('div');
+    d.className = 'cap';
+    d.textContent = String(text).slice(0, 140);
+    caps.append(d);
+    while (caps.children.length > 3) caps.firstChild.remove();
+  };
+
+  if (action === 'cap') {
+    addCap(arg);
+    return { ok: true };
+  }
+
   if (action === 'status') {
     // Live na status ng ginagawa — hal. "Pinipindot ang ref_12" o "Binabasa ang page".
     const st = host.shadowRoot.querySelector('.st');
-    st.textContent = ref ? `· ${ref}` : '';
+    st.textContent = arg ? `· ${arg}` : '';
     return { ok: true };
   }
 
   if (action === 'point') {
+    // Tumatanggap ng ref (luma) o {ref, verb} (bago) — ang verb ang ginagamit sa
+    // banner at caption kasama ang TUNAY na pangalan ng element, hindi ref number.
+    const ref = typeof arg === 'object' && arg ? arg.ref : arg;
+    const verb = (typeof arg === 'object' && arg?.verb) || '';
     const el = window.__kimiRefs?.get(ref);
     if (!el) return { ok: false };
+    const label = (
+      el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText ||
+      el.value || el.getAttribute('title') || el.tagName.toLowerCase()
+    ).replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (verb) {
+      host.shadowRoot.querySelector('.st').textContent = `· ${verb} ang “${label}”`;
+      addCap(`${verb === 'Pinipindot' ? '🖱' : '⌨'} ${verb} ang “${label}”`);
+    }
     const r = el.getBoundingClientRect();
     const sh = host.shadowRoot;
     const cur = sh.querySelector('.cur');
@@ -262,6 +307,7 @@ export function overlay(action, ref) {
     ring.classList.remove('on');
     void ring.offsetWidth; // pinipilit ang muling pagpapatakbo ng animation
     ring.classList.add('on');
+    return { ok: true, label };
   }
   return { ok: true };
 }

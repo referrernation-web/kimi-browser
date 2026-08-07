@@ -1,4 +1,4 @@
-import { needsApproval, schemaFor, runTool, setOverlay, setStatus, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
+import { needsApproval, schemaFor, runTool, setOverlay, setStatus, setCaption, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
 import { promptFor } from './memory.js';
 
 // --- PROVIDERS ---
@@ -28,11 +28,12 @@ tabs ng user ay hindi mo makikita, malilipat, o masasara — kahit subukan mo, h
 ka ng Chrome mismo. Kapag kailangan mo ng bagong tab, gumamit ng new_tab at awtomatiko
 itong papasok sa group mo.
 
-PLANO MUNA: kapag ang gawain ay may tatlo o higit pang hakbang, magsimula sa maikling
-numerado na plano (3-6 linya) bago ang unang tool call — para may direksyon ka at
-nakikita ng user kung saan ka papunta. Sundan ang plano. Kapag dalawang beses nabigo
-ang parehong hakbang, huwag ipagpilitan — sabihin sa isang linya ang bagong ruta bago
-magpatuloy. Sa gawaing isa o dalawang hakbang lang, huwag nang magplano — kumilos agad.
+PLANO MUNA: kapag ang gawain ay may tatlo o higit pang hakbang, tumawag MUNA ng \`plan\`
+tool (3-6 na hakbang, done: 0) bago ang unang aksyon — lumalabas ito sa user bilang
+checklist. Pagkatapos ng BAWAT natapos na hakbang, tumawag ulit ng \`plan\` na may
+bagong \`done\` para umusad ang check marks. Kapag dalawang beses nabigo ang parehong
+hakbang, huwag ipagpilitan — i-update ang plano na may bagong ruta bago magpatuloy.
+Sa gawaing isa o dalawang hakbang lang, huwag nang magplano — kumilos agad.
 
 Paraan ng pagtatrabaho:
 - Tumawag ng read_page BAGO ang unang click o type. Pagkatapos niyan, basahin mo MULI
@@ -275,7 +276,7 @@ mula sa caption mismo, at magmungkahi batay doon.`;
 async function getSettings() {
   const d = await chrome.storage.local.get([
     'apiKey', 'apiKeys', 'provider', 'customUrl', 'model', 'strongModel', 'mode', 'autopilot',
-    'audit', 'auditProvider', 'auditModel', 'groqKey',
+    'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach',
   ]);
   const provider = d.provider || 'kimi';
   const keys = d.apiKeys || {};
@@ -305,6 +306,7 @@ async function getSettings() {
     strongModel: d.strongModel || STRONG_DEFAULTS[provider] || model,
     mode: d.mode || 'adaptive',
     autopilot: !!d.autopilot,
+    teach: !!d.teach,
     audit: !!d.audit,
     auditUrl,
     auditKey,
@@ -586,12 +588,23 @@ chrome.notifications?.onClicked?.addListener((id) => {
 // Ibinabalik ang buong assembled reply (para sa kasaysayan) habang naipapadala na
 // ang mga delta sa panel para sa live na pagpapakita.
 async function callModel({ url, apiKey, model, messages, tools, signal, onDelta }) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages, tools, max_tokens: 8192, stream: true }),
-    signal,
-  });
+  const post = (extra) =>
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, messages, tools, max_tokens: 8192, stream: true, ...extra }),
+      signal,
+    });
+
+  // Hinihingi ang TUMPAK na token counts sa huling stream chunk — ito ang pinagmumulan
+  // ng accurate na usage. Kung tinanggihan ng provider ang stream_options, subukan
+  // ulit nang wala ito — ang usage ay palamuti, hindi dapat makasira ng takbo.
+  let res = await post({ stream_options: { include_usage: true } });
+  if (!res.ok && res.status === 400) {
+    const body = await res.text().catch(() => '');
+    if (/stream_options/i.test(body)) res = await post({});
+    else return { error: `API 400: ${body.slice(0, 400)}` };
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -599,8 +612,8 @@ async function callModel({ url, apiKey, model, messages, tools, signal, onDelta 
   }
   // Kung walang stream support, bumalik sa dati.
   if (!res.body) {
-    const reply = (await res.json()).choices?.[0]?.message;
-    return { reply, streamed: false };
+    const data = await res.json();
+    return { reply: data.choices?.[0]?.message, streamed: false, usage: data.usage || null };
   }
 
   const reader = res.body.getReader();
@@ -610,6 +623,7 @@ async function callModel({ url, apiKey, model, messages, tools, signal, onDelta 
   const reply = { role: 'assistant', content: '' };
   const toolCalls = [];
   let reasoning = '';
+  let usage = null; // dumarating sa huling chunk kapag suportado ng provider
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -631,6 +645,7 @@ async function callModel({ url, apiKey, model, messages, tools, signal, onDelta 
         continue; // kalahating linya o keep-alive — laktawan
       }
 
+      if (chunk.usage) usage = chunk.usage;
       const delta = chunk.choices?.[0]?.delta || {};
       if (delta.reasoning_content) {
         reasoning += delta.reasoning_content;
@@ -654,7 +669,7 @@ async function callModel({ url, apiKey, model, messages, tools, signal, onDelta 
 
   if (reasoning) reply.reasoning_content = reasoning;
   if (toolCalls.length) reply.tool_calls = toolCalls;
-  return { reply, streamed: sawDelta };
+  return { reply, streamed: sawDelta, usage };
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -734,7 +749,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     run = { id: msg.runId, sessionId: msg.sessionId };
 
-    const { apiKey, baseUrl, model, strongModel, mode, autopilot,
+    const { apiKey, baseUrl, model, strongModel, mode, autopilot, teach,
             audit, auditUrl, auditKey, auditModel } = await getSettings();
     const runStartAt = Date.now(); // para sa usage tracking
     let routedModel = model; // deklarado agad para ligtas sa finally
@@ -770,7 +785,7 @@ chrome.runtime.onConnect.addListener((port) => {
     messages = [{ role: 'system', content: system }, ...(msg.history || [])];
     abort = new AbortController();
     const stopKeepAlive = keepAlive();
-    await setOverlay(true);
+    await setOverlay(true, teach);
     setStatus('Nag-iisip…');
 
     // Dito siya tumatalino sa paggamit. Pagkatapos ng bawat totoong gawain, isang tawag
@@ -899,7 +914,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const scores = [];
       await Promise.allSettled(
         models.map(async (mName, slot) => {
-          const { reply, streamed } = await callModel({
+          const { reply, streamed, usage } = await callModel({
             url: auditUrl,
             apiKey: auditKey,
             model: mName,
@@ -922,7 +937,11 @@ chrome.runtime.onConnect.addListener((port) => {
           send({ type: 'audit_end', slot, model: mName, worker: routedModel });
           const sc = /SCORE:\s*(\d+(?:\.\d+)?)/i.exec(text);
           if (sc) scores.push(Math.min(10, +sc[1]));
-          send({ type: 'usage', model: mName, seconds: Math.round((Date.now() - auditStart) / 1000) });
+          send({
+            type: 'usage', model: mName, role: 'auditor', calls: 1,
+            seconds: Math.round((Date.now() - auditStart) / 1000),
+            in: usage?.prompt_tokens || 0, out: usage?.completion_tokens || 0,
+          });
         })
       );
 
@@ -967,7 +986,14 @@ chrome.runtime.onConnect.addListener((port) => {
           signal: abort.signal,
         });
         if (!res.ok) return;
-        const line = ((await res.json()).choices?.[0]?.message?.content || '').trim();
+        const data = await res.json();
+        if (data.usage) {
+          send({
+            type: 'usage', model: checkModel, role: 'auditor', calls: 1,
+            in: data.usage.prompt_tokens || 0, out: data.usage.completion_tokens || 0,
+          });
+        }
+        const line = (data.choices?.[0]?.message?.content || '').trim();
         if (!/^IWASTO/i.test(line)) return; // TULOY = tahimik, walang ingay sa worker
         send({ type: 'tool', name: '_midcheck', args: { note: line.slice(0, 120) } });
         record({ role: 'user', content: `[SECOND BRAIN — gabay sa gitna ng gawain] ${line.slice(0, 300)}` });
@@ -1009,7 +1035,7 @@ chrome.runtime.onConnect.addListener((port) => {
           }
         }
 
-        const { reply, error, streamed } = await callModel({
+        const { reply, error, streamed, usage } = await callModel({
           url: baseUrl,
           apiKey,
           model: routedModel,
@@ -1028,6 +1054,13 @@ chrome.runtime.onConnect.addListener((port) => {
           return;
         }
         record(reply);
+        // TUMPAK na usage — galing mismo sa API, kada tawag, hindi tantiya.
+        if (usage) {
+          send({
+            type: 'usage', model: routedModel, role: 'worker', calls: 1,
+            in: usage.prompt_tokens || 0, out: usage.completion_tokens || 0,
+          });
+        }
 
         // Kapag nag-stream na, nabuhay na ang bubble sa panel — sasabihin lang natin
         // na tapos na. Kapag hindi, ipapadala ang buo tulad ng dati. Laging kasama
@@ -1040,6 +1073,9 @@ chrome.runtime.onConnect.addListener((port) => {
         }
 
         const calls = reply.tool_calls || [];
+        // TEACH MODE: ang salaysay ng model bago kumilos ay nagiging caption sa page —
+        // dito natututo ang nanonood kung BAKIT ginagawa ang susunod na hakbang.
+        if (teach && reply.content && calls.length) setCaption('💬 ' + reply.content.slice(0, 140));
         if (!calls.length) {
           // AUTOPILOT: baka may susunod pang hakbang sa orihinal na hinihingi.
           if (autopilot && chains < 5 && step >= 1) {
@@ -1113,6 +1149,7 @@ chrome.runtime.onConnect.addListener((port) => {
                 close_tab: 'Isinasara ang tab',
                 run_shortcut: `Pinapatakbo ang ${args.name || 'shortcut'}`,
                 schedule_task: 'Nag-iiskedyul ng gawain',
+                plan: 'Nagpaplano…',
               })[name] || name
             );
             if (needsApproval(mode, name)) notify(`Pahintulot: ${name}`, JSON.stringify(args));
@@ -1198,8 +1235,8 @@ chrome.runtime.onConnect.addListener((port) => {
       stopKeepAlive();
       await setOverlay(false);
       send({ type: 'done' }); // ang kasaysayan ay naipadala na isa-isa
-      // Usage tracking: ilang segundo at anong model — para makita mo kung saan pumapasok ang oras.
-      send({ type: 'usage', model: routedModel, seconds: Math.round((Date.now() - runStartAt) / 1000) });
+      // Usage tracking: ilang segundo ang buong takbo — ang tokens ay naipadala na kada tawag.
+      send({ type: 'usage', model: routedModel, role: 'worker', runs: 1, seconds: Math.round((Date.now() - runStartAt) / 1000) });
       notify('Kimi K3', 'Tapos na ang gawain — buksan ang panel para makita ang resulta.');
       try {
         await chrome.action.setBadgeText({ text: '' }); // patayin ang ilaw
