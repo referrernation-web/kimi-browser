@@ -1,0 +1,21 @@
+/* collab.css — gumagamit ng existing CSS vars ng extension (--bg2,--tx2,--acc,--line,--mono) */
+.collab-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;
+  font:600 10px/1.5 var(--mono,monospace);color:var(--tx2,#8a8a8a);
+  background:var(--bg2,#101010);border-bottom:1px solid var(--line,#242424)}
+.collab-head .ch-title{color:var(--acc,#00aeef);letter-spacing:.08em}
+.collab-head .ch-arrow{opacity:.5}
+.collab-head .ch-stats{margin-left:auto;opacity:.8}
+.collab-head i,.collab-live i,.collab-badge i{width:7px;height:7px;border-radius:50%;
+  background:var(--pc,#888);display:inline-block;margin-right:4px}
+.collab-live{display:none;gap:12px;flex-wrap:wrap;padding:4px 10px;
+  font:500 10px/1.6 var(--mono,monospace);color:var(--tx2,#9a9a9a);
+  background:var(--bg2,#101010);border-bottom:1px solid var(--line,#242424)}
+.collab-live .lv b{color:var(--acc,#00aeef);font-weight:600}
+.collab-badge{display:inline-flex;align-items:center;margin:0 0 4px 10px;padding:3px 8px;
+  border:1px solid var(--line,#2a2a2a);border-radius:99px;background:var(--bg2,#141414);
+  font:600 9.5px/1 var(--mono,monospace);color:var(--tx2,#9a9a9a)}
+.collab-badge em{font-style:normal;text-transform:uppercase;opacity:.65;margin-left:5px}
+.collab-chip{margin:0 0 4px 6px;padding:3px 7px;border-radius:99px;
+  font:700 9.5px/1 var(--mono,monospace)}
+.collab-chip.ok{color:#34d399;border:1px solid #34d39955}
+.collab-chip.warn{color:#fbbf24;border:1px solid #fbbf2455}
