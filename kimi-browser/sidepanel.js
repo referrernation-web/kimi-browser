@@ -265,7 +265,7 @@ const showHint = () => ($('hint').textContent = HINTS[$('mode').value]);
 let ttsOn = false;
 let soundOn = true;
 
-chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound', 'autopilot']).then((d) => {
+chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound', 'autopilot', 'theme']).then((d) => {
   $('key').value = d.apiKey || '';
   $('model').value = d.model || 'k3';
   $('mode').value = d.mode || 'adaptive';
@@ -274,6 +274,9 @@ chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound', 'autopilot'
   $('tts').classList.toggle('on', ttsOn);
   $('sound').classList.toggle('on', soundOn);
   $('pilot').classList.toggle('on', !!d.autopilot);
+  // Puti ang default — dark lang kapag pinili ng user
+  document.body.dataset.theme = d.theme || 'light';
+  $('theme').textContent = document.body.dataset.theme === 'dark' ? '☀' : '☾';
   showHint();
 });
 $('key').onchange = () => chrome.storage.local.set({ apiKey: $('key').value.trim() });
@@ -1141,6 +1144,14 @@ async function finishRecording(steps) {
       text: `⏺ Naka-save ang shortcut na "${name}" (${steps.length} hakbang) — sabihin mo lang: "i-run ang ${name}"`,
     });
 }
+
+// --- THEME: puti ang default, dark kapag pinindot ang ☾ ---
+$('theme').onclick = () => {
+  const next = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.body.dataset.theme = next;
+  $('theme').textContent = next === 'dark' ? '☀' : '☾';
+  chrome.storage.local.set({ theme: next });
+};
 
 // --- SCHEDULED TASKS ---
 $('sched').onclick = async () => {
