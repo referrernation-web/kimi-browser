@@ -265,13 +265,25 @@ const showHint = () => ($('hint').textContent = HINTS[$('mode').value]);
 let ttsOn = false;
 let soundOn = true;
 
-// --- PROVIDERS: Kimi, Alibaba DashScope (Qwen), o kahit anong OpenAI-compatible ---
+// --- PROVIDERS: Kimi, Alibaba Token Plan, DashScope, o kahit anong OpenAI-compatible ---
 // Bawat provider ay may sariling naka-save na API key — hindi nagtatapon ng key
 // kapag nagpapalipat-lipat ka.
 const PROVIDERS = {
   kimi: {
     keyHint: 'Kimi API key (sk-kimi-...)',
     models: ['k3', 'k3-256k'],
+  },
+  tokenplan: {
+    keyHint: 'Token Plan API key (sk-...)',
+    models: [
+      'qwen3.8-max',
+      'qwen3.7-max',
+      'qwen3.7-plus',
+      'qwen3.6-flash',
+      'glm-5.2',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash-0731',
+    ],
   },
   dashscope: {
     keyHint: 'DashScope API key (sk-...)',
@@ -280,7 +292,7 @@ const PROVIDERS = {
   custom: { keyHint: 'API key', models: [] },
 };
 let curProvider = 'kimi';
-let apiKeys = {}; // { kimi: '...', dashscope: '...', custom: '...' }
+let apiKeys = {}; // { kimi: '...', tokenplan: '...', dashscope: '...', custom: '...' }
 
 function fillModels(keepValue = false) {
   const list = PROVIDERS[curProvider]?.models || [];
