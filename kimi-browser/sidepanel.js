@@ -15,7 +15,7 @@ const runsById = new Map();       // runId -> sessionId (para maroute ang events
 const activeRuns = new Set();     // runId ng mga tumatakbong gawain
 const unread = new Set();         // sessionId na may bagong update habang hindi aktibo
 const pendingPrompts = new Map(); // sessionId -> [{ kind:'question'|'confirm', id, ... }]
-const streams = new Map();        // runId -> { a, t, u, elA, elT, elU } para sa streaming
+const streams = new Map();        // runId -> { a, t, slots, elA, elT } para sa streaming
 
 const uid = () =>
   crypto.randomUUID?.() || 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -186,7 +186,8 @@ function renderEntry(e) {
   if (e.t === 'think') addThinking(e.text);
   else if (e.t === 'table') addTable(e.title, e.columns, e.rows, true, active());
   else if (e.t === 'audit') addAudit(e.text, e.model, e.worker);
-  else add(e.t, e.text);
+  else if (e.t === 'vote') addVote(e.avg, e.pass, e.n);
+  else add(e.t, e.text, e.model);
 }
 
 // Itala ang entry sa session (aktibo man o hindi), tapos i-render kung aktibo.
@@ -201,10 +202,17 @@ function emit(sess, entry) {
   }
 }
 
-function add(cls, text) {
+function add(cls, text, model) {
   const el = document.createElement('div');
   el.className = `msg ${cls}`;
-  el.textContent = text;
+  // Transparency: ang bawat sagot ay may model tag — alam mo kung sino ang nagsasalita.
+  if (model && cls === 'assistant') {
+    const b = document.createElement('div');
+    b.className = 'modeltag';
+    b.textContent = model;
+    el.append(b);
+  }
+  el.append(document.createTextNode(text));
   log.append(el);
   log.scrollTop = log.scrollHeight;
   return el;
@@ -349,8 +357,33 @@ chrome.storage.local
     // Puti ang default — dark lang kapag pinili ng user
     document.body.dataset.theme = d.theme || 'light';
     $('theme').textContent = document.body.dataset.theme === 'dark' ? '☀' : '☾';
+    syncChip();
+    syncMenuDot();
     showHint();
   });
+
+// --- ⚙ SETTINGS at ⋯ MENU: nakatago hanggang kailangan (malinis na panel) ---
+$('gear').onclick = () => {
+  const open = $('settings').style.display === 'none';
+  $('settings').style.display = open ? 'grid' : 'none';
+};
+$('menubtn').onclick = (e) => {
+  e.stopPropagation();
+  const open = $('menu').style.display === 'none';
+  $('menu').style.display = open ? 'grid' : 'none';
+};
+document.addEventListener('click', (e) => {
+  if (!$('menu').contains(e.target) && e.target !== $('menubtn')) $('menu').style.display = 'none';
+});
+// Violet border sa ⋯ kapag may naka-ong feature para kita agad.
+const syncMenuDot = () =>
+  $('menubtn').classList.toggle(
+    'has-on',
+    $('audit').classList.contains('on') || $('pilot').classList.contains('on')
+  );
+
+// Ang model chip sa header — laging kita kung sino ang worker ngayon.
+const syncChip = () => ($('modelchip').textContent = $('model').value || 'model');
 
 $('provider').onchange = () => {
   curProvider = $('provider').value;
@@ -359,12 +392,16 @@ $('provider').onchange = () => {
   $('key').placeholder = PROVIDERS[curProvider].keyHint;
   $('baseurl').style.display = curProvider === 'custom' ? '' : 'none';
   fillModels(); // kapag lumipat ng provider, i-suggest ang unang model nito
+  syncChip();
 };
 $('key').onchange = () => {
   apiKeys[curProvider] = $('key').value.trim();
   chrome.storage.local.set({ apiKeys });
 };
-$('model').onchange = () => chrome.storage.local.set({ model: $('model').value.trim() });
+$('model').onchange = () => {
+  chrome.storage.local.set({ model: $('model').value.trim() });
+  syncChip();
+};
 $('baseurl').onchange = () => chrome.storage.local.set({ customUrl: $('baseurl').value.trim() });
 $('mode').onchange = () => {
   chrome.storage.local.set({ mode: $('mode').value });
@@ -457,7 +494,7 @@ const SAYS = {
   schedule_task: () => 'Nag-iiskedyul ng gawain',
   _autopilot: (a) => `🛩 Nagpapatuloy (${a.chains}/5): ${String(a.next).slice(0, 60)}`,
   _escalate: (a) => `Lumipat sa mas malakas na model — ${a.why}`,
-  _audit: (a) => `🧐 Sinusuri ni ${a.model} ang sagot…`,
+  _audit: (a) => `🗳 Sinusuri nina ${a.model} ang sagot…`,
 };
 const hostOf = (u) => {
   try {
@@ -665,10 +702,10 @@ async function copyTable(t, btn) {
 }
 
 // --- STREAMING: live na bubble habang nagta-type ang model ---
-function liveDelta(sess, runId, kind, text) {
+function liveDelta(sess, runId, kind, text, meta = {}) {
   let st = streams.get(runId);
   if (!st) {
-    st = { a: '', t: '', u: '', elA: null, elT: null, elU: null };
+    st = { a: '', t: '', slots: null, elA: null, elT: null };
     streams.set(runId, st);
   }
   const live = sess.id === activeId;
@@ -684,19 +721,22 @@ function liveDelta(sess, runId, kind, text) {
       log.scrollTop = log.scrollHeight;
     }
   } else if (kind === 'u') {
-    // Ang audit stream — live na second opinion mula sa ibang AI.
-    st.u += text;
+    // Ang audit stream — per-model slot para sa voting (sabay-sabay ang mga AI).
+    const slot = meta.slot ?? 0;
+    st.slots ||= {};
+    const su = (st.slots[slot] ||= { text: '', el: null, model: meta.model });
+    su.text += text;
     if (live) {
-      if (!st.elU) {
-        st.elU = document.createElement('div');
-        st.elU.className = 'msg audit live';
+      if (!su.el) {
+        su.el = document.createElement('div');
+        su.el.className = 'msg audit live';
         const head = document.createElement('div');
         head.className = 'audit-head';
-        head.textContent = '🧐 Second opinion…';
-        st.elU.append(head, document.createTextNode(''));
-        log.append(st.elU);
+        head.textContent = `🧐 ${su.model || 'Second brain'}…`;
+        su.el.append(head, document.createTextNode(''));
+        log.append(su.el);
       }
-      st.elU.childNodes[1].textContent = st.u;
+      su.el.childNodes[1].textContent = su.text;
       log.scrollTop = log.scrollHeight;
     }
   } else {
@@ -740,15 +780,28 @@ function addAudit(text, model, worker) {
   log.scrollTop = log.scrollHeight;
 }
 
-function auditEnd(sess, runId, model, worker) {
+function auditEnd(sess, runId, model, worker, slot = 0) {
   const st = streams.get(runId);
-  if (!st || !st.u) return;
-  streams.delete(runId);
-  st.elU?.remove();
-  emit(sess, { t: 'audit', text: st.u, model, worker });
+  if (!st?.slots?.[slot]) return;
+  const su = st.slots[slot];
+  delete st.slots[slot];
+  su.el?.remove();
+  emit(sess, { t: 'audit', text: su.text, model, worker });
 }
 
-function streamEnd(sess, runId) {
+// Ang consensus ng mga AI sa voting — isang linya lang, malinaw.
+function addVote(avg, pass, n) {
+  const el = document.createElement('div');
+  el.className = 'msg audit';
+  const head = document.createElement('div');
+  head.className = 'audit-head';
+  head.textContent = `🗳 Consensus: ${pass ? 'PASS ✅' : 'KAILANGANG AYUSIN ⚠️'} — ${avg}/10 mula sa ${n} model`;
+  el.append(head);
+  log.append(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function streamEnd(sess, runId, model) {
   const st = streams.get(runId);
   if (!st) return;
   streams.delete(runId);
@@ -757,7 +810,7 @@ function streamEnd(sess, runId) {
   st.elT?.remove();
   if (st.t) emit(sess, { t: 'think', text: st.t });
   if (st.a) {
-    emit(sess, { t: 'assistant', text: st.a });
+    emit(sess, { t: 'assistant', text: st.a, model });
     maybeSpeak(st.a);
   }
 }
@@ -775,15 +828,17 @@ function onMessage(m) {
     case 'thinking_delta':
       return liveDelta(sess, m.runId, 't', m.text);
     case 'audit_delta':
-      return liveDelta(sess, m.runId, 'u', m.text);
+      return liveDelta(sess, m.runId, 'u', m.text, { slot: m.slot, model: m.model });
     case 'audit_end':
-      return auditEnd(sess, m.runId, m.model, m.worker);
+      return auditEnd(sess, m.runId, m.model, m.worker, m.slot);
+    case 'vote':
+      return emit(sess, { t: 'vote', avg: m.avg, pass: m.pass, n: m.n });
     case 'stream_end':
-      return streamEnd(sess, m.runId);
+      return streamEnd(sess, m.runId, m.model);
     case 'thinking':
       return emit(sess, { t: 'think', text: m.text });
     case 'assistant':
-      emit(sess, { t: 'assistant', text: m.text });
+      emit(sess, { t: 'assistant', text: m.text, model: m.model });
       return maybeSpeak(m.text);
     case 'tool':
       return emit(sess, { t: 'tool', text: describe(m.name, m.args) });
@@ -1226,6 +1281,7 @@ $('export').onclick = () => {
     else if (e.t === 'tool') lines.push(`> ${e.text}`, '');
     else if (e.t === 'error') lines.push(`> ⚠ ${e.text}`, '');
     else if (e.t === 'audit') lines.push(`## 🧐 Second brain (${e.model || 'auditor'})`, '', e.text, '');
+    else if (e.t === 'vote') lines.push(`## 🗳 Consensus: ${e.pass ? 'PASS' : 'AYUSIN'} — ${e.avg}/10 (${e.n} model)`, '');
     else if (e.t === 'table') {
       lines.push(
         `### ${e.title}`,
@@ -1305,6 +1361,7 @@ $('audit').onclick = () => {
   auditOn = !auditOn;
   $('audit').classList.toggle('on', auditOn);
   $('auditrow').style.display = auditOn ? '' : 'none';
+  syncMenuDot();
   chrome.storage.local.set({ audit: auditOn });
   const s = active();
   if (s)
@@ -1326,6 +1383,7 @@ $('auditmodel').onchange = () =>
 $('pilot').onclick = () => {
   const on = !$('pilot').classList.contains('on');
   $('pilot').classList.toggle('on', on);
+  syncMenuDot();
   chrome.storage.local.set({ autopilot: on });
   const s = active();
   if (s)
