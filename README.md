@@ -14,13 +14,14 @@ Hindi mo kailangan ng kahit anong technical knowledge. Sundan lang:
 - **Windows:** Right-click ang zip file → **Extract All...** → Extract
 - **Mac:** Double-click lang ang zip file
 - Magkakaroon ka ng folder na `kimi-browser-main`
+- **Buksan iyon** — sa loob niya may isa pang folder na `kimi-browser`. IYON ang kailangan natin. (Doon nakalagay ang `manifest.json`.)
 
 ### Step 3 — I-load sa Chrome
 1. Buksan ang **Google Chrome**
 2. Sa address bar, i-type: `chrome://extensions` tapos Enter
 3. Sa **kanang-itaas**, i-ON ang **Developer mode** (toggle switch)
 4. Click ang **Load unpacked** (button sa kaliwang-itaas)
-5. Piliin ang folder na `kimi-browser-main` — dapat ito ang folder na may `manifest.json` sa loob
+5. Piliin ang **inner folder**: `kimi-browser-main` → `kimi-browser` (ang folder na may `manifest.json` mismo sa loob)
 6. Click **Select Folder**
 
 ### Step 4 — Tapos na!
@@ -38,9 +39,10 @@ Hindi mo kailangan ng kahit anong technical knowledge. Sundan lang:
 | Problema | Solusyon |
 |---|---|
 | Walang "Load unpacked" button | Hindi naka-ON ang Developer mode — i-ON muna sa kanang-itaas |
-| Error na "Could not load manifest" | Mali ang napiling folder — piliin ang folder na may `manifest.json` mismo sa loob, hindi ang parent folder |
-| Nawala ang extension pag-restart | Normal sa Developer mode extensions na mag-warn si Chrome — click lang "Keep" o i-load ulit |
+| Error na "Could not load manifest" | Mali ang napiling folder — piliin ang INNER na `kimi-browser` folder (may `manifest.json` mismo sa loob), hindi ang `kimi-browser-main` |
+| Warning si Chrome na "Developer mode extension" | Normal lang ito sa ganitong extension — click lang **Keep** |
 
 ## Notes
 - Personal/internal extension ito — hindi ito mula sa Chrome Web Store, kaya kailangan ng Developer mode
-- Ang source code ay nakikita mo lahat dito sa repo — walang nakatagong anything
+- Ang buong source code ay nakikita dito sa repo — walang nakatagong anything
+- Ang mga extension files ay nasa [`kimi-browser/`](./kimi-browser) na folder
