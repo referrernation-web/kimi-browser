@@ -1,5 +1,5 @@
 import { readPage, clickRef, typeRef, scrollPage, overlay, listenPage, readWhisperTab,
-         hookConsole, readConsole, pasteLarge, recorderStart, recorderStop, applyStep } from './page-fns.js';
+         hookConsole, readConsole, pasteLarge, recorderStart, recorderStop, applyStep, pageSig } from './page-fns.js';
 import { remember } from './memory.js';
 
 // Mga tool na nagbabago ng kalagayan sa labas ng browser.
@@ -600,6 +600,9 @@ export async function runTool(name, args) {
     }
     case 'click': {
       const tab = await workingTab();
+      // VERIFICATION LOOP: kunan ng signature bago at pagkatapos — makikita agad ng
+      // model kung tumalab ang click, nang hindi kailangang mag-read_page muli.
+      const before = await inPage(pageSig).catch(() => null);
       await point(args.ref);
       const out = await inPage(clickRef, [args.ref]);
       // Hintayin kung magna-navigate; kung hindi, maikling settle lang.
@@ -608,6 +611,14 @@ export async function runTool(name, args) {
       if (now && now.status === 'loading') {
         await waitForLoad(tab.id, 8000);
         await settle(200);
+      }
+      const after = await inPage(pageSig).catch(() => null);
+      if (before && after) {
+        out.nagbago = after.url !== before.url ? 'url' : after.sig !== before.sig ? 'dom' : 'wala';
+        if (out.nagbago === 'wala') {
+          out.babala =
+            'Walang nakitang pagbabago sa page — malamang hindi tumalab ang click. Basahin ulit ang page o subukan ang ibang paraan (hal. scroll muna, o ibang element).';
+        }
       }
       return out;
     }
@@ -621,7 +632,10 @@ export async function runTool(name, args) {
       await chrome.tabs.update(tab.id, { url: args.url });
       await waitForLoad(tab.id, 10000);
       await settle(150);
-      return { ok: true, url: args.url };
+      // Ibalik ang TUNAY na naging URL at title — ang verification ay dapat
+      // nakabatay sa nangyari, hindi sa hinihingi.
+      const sig = await inPage(pageSig).catch(() => null);
+      return { ok: true, url: sig?.url || args.url, title: sig?.title || null };
     }
     case 'listen': {
       const tab = await workingTab();
