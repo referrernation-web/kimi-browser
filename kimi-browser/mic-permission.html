@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="tl">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pahintulot sa mikropono</title>
+    <style>
+      body {
+        font: 14px/1.6 ui-sans-serif, system-ui, sans-serif;
+        max-width: 480px;
+        margin: 60px auto;
+        padding: 0 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="msg">Hinihingi ang pahintulot sa mikropono… pindutin ang <b>Allow</b> sa itaas.</p>
+    <script>
+      const msg = document.getElementById('msg');
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          stream.getTracks().forEach((t) => t.stop());
+          msg.innerHTML =
+            '✅ Pahintulot na sa mikropono. Isara mo na ang tab na ito, ' +
+            'tapos pindutin ulit ang 🎤 sa Kimi K3 panel.';
+        })
+        .catch((e) => {
+          msg.innerHTML =
+            '❌ Hindi nakuha ang pahintulot: ' + e.message +
+            '<br><br>I-click ang lock icon sa address bar → Microphone → Allow, ' +
+            'tapos i-reload ang page na ito.';
+        });
+    </script>
+  </body>
+</html>
