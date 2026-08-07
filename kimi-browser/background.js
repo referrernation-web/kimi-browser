@@ -23,6 +23,12 @@ Paraan ng pagtatrabaho:
 - Isang hakbang sa bawat pagkakataon, pero huwag magsayang ng read sa bagay na
   alam mo na. Ang bilis ay nagmumula sa kaunting tawag, hindi sa mabilis na tawag.
 - Kapag hindi mo makita ang hinahanap mo, mag-scroll o basahin ulit — huwag manghula ng ref.
+- TOKEN DISCIPLINE: sa mga mekanikal na hakbang (click, type, scroll), maikli ang
+  pag-iisip at diretso lang. Itabi ang malalim na pag-aanalisa sa paghahambing,
+  debugging, at pagpaplano. Ang paulit-ulit na pagsusuri sa simpleng hakbang ay
+  ang pinakamalaking pag-aaksaya.
+- VERIFICATION: kapag sinabi ng resulta na "nagbago: wala", huwag subukan muli ang
+  parehong aksyon nang bulag — magbago ng diskarte (scroll, ibang element, o ibang daan).
 
 PAANO KA MAGSALITA — ito ang pinakamadalas mong pagkukulang, basahin mong mabuti:
 
@@ -130,6 +136,94 @@ export function compactShots(messages) {
 function keepAlive() {
   const t = setInterval(() => chrome.runtime.getPlatformInfo(), 20000);
   return () => clearInterval(t);
+}
+
+// --- MODEL ROUTING ---
+// Mabilis/murang model ang default ng buong loop; lumilipat sa malakas lang kapag
+// (a) dalawang sunod na step ang may error, o (b) lalampas sa context ng maliit.
+// Ang paglilipat ay nangyayari sa susunod na tawag — walang nasisirang kasaysayan.
+const CHEAP_MODEL = 'k3-256k';
+const STRONG_MODEL = 'k3';
+
+// Tinatayang badyet ng konteksto kada model (sa karakter; ~4 chars = 1 token).
+const CTX_CHARS = { 'k3-256k': 110000, k3: 600000 };
+
+function totalChars(msgs) {
+  return msgs.reduce(
+    (n, m) => n + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content || '').length),
+    0
+  );
+}
+
+// --- AUTO-COMPACTION ---
+// Bago mapuno ang konteksto, ini-summarize ng model mismo ang naunang bahagi ng
+// usapan — ang buod lang ang pinapanatili, kasama ang huling ilang mensahe. Samantala,
+// hinahayaan nating tumawag ito ng `remember` para mailigtas ang mga durable na
+// fact bago mawala ang detalye. Ito ang gamot sa "nagbobobo habang humahaba."
+async function autoCompact(messages, apiKey, model, signal, onRemember) {
+  const KEEP_TAIL = 8;
+  if (messages.length < 16) return 0;
+
+  // Huwag pumutol sa gitna ng tool_call pairing: ang huling mensahe bago ang putol
+  // ay hindi dapat tool result o assistant na may tool_calls.
+  let cut = messages.length - KEEP_TAIL;
+  while (cut > 2 && (messages[cut - 1].role === 'tool' || messages[cut - 1].tool_calls)) cut--;
+  if (cut <= 2) return 0;
+
+  const head = messages.slice(1, cut); // lahat maliban sa system at buntot
+  let res;
+  try {
+    res = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        max_tokens: 2048,
+        tools: SCHEMA_ALL.filter((t) => t.function.name === 'remember'),
+        messages: [
+          {
+            role: 'user',
+            content:
+              'I-summarize mo itong bahagi ng usapan para sa sarili mo sa hinaharap, sa wikang ginagamit ng user. ' +
+              'Panatilihin: ang PANGUNAHING gawain at kung ano ang natapos na, mga URL na binuksan, mga presyo/bilang/petsa na nakuha, ' +
+              'mga desisyong nagawa na, at kung ano ang KASALUKUYANG hinihintay o susunod na hakbang. Tumaas sa 600 salita lang. ' +
+              'Kung may durable na fact (tungkol sa site o sa user), tumawag din ng remember.\n\n' +
+              JSON.stringify(head).slice(0, 400000),
+          },
+        ],
+      }),
+      signal,
+    });
+  } catch {
+    return 0;
+  }
+  if (!res.ok) return 0;
+
+  const m = (await res.json()).choices?.[0]?.message;
+  for (const c of m?.tool_calls || []) {
+    if (c.function.name !== 'remember') continue;
+    try {
+      const a = JSON.parse(c.function.arguments || '{}');
+      await onRemember(a);
+    } catch {}
+  }
+
+  const summary = (m?.content || '').trim();
+  if (!summary) return 0;
+
+  const before = totalChars(messages);
+  messages.splice(
+    1,
+    cut - 1,
+    {
+      role: 'user',
+      content:
+        '[AUTO-COMPACT] Buod ng naunang bahagi ng usapang ito (ang buong detalye ay tinanggal para makatipid ng konteksto):\n\n' +
+        summary,
+    },
+    { role: 'assistant', content: 'Nauunawaan ko — tuloy ko ang gawain mula sa buod na ito at sa mga sumusunod na mensahe.' }
+  );
+  return before - totalChars(messages);
 }
 
 const COACH_NOTE = `
@@ -696,14 +790,45 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     }
 
+    let failStreak = 0; // sunod na step na may error — para sa model routing
+    let routedModel = CHEAP_MODEL; // mabilis/mura ang default ng buong loop
+    let escalatedOnce = false;
+
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
         const saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages);
         if (saved > 2000) send({ type: 'tool', name: '_compact', args: { saved } });
 
+        // AUTO-COMPACTION: bago mapuno ang konteksto, i-summarize ang naunang bahagi.
+        if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.85) {
+          const freed = await autoCompact(messages, apiKey, routedModel, abort.signal, async (a) => {
+            await runTool('remember', a);
+            send({ type: 'tool', name: 'remember', args: a });
+          });
+          if (freed > 2000) send({ type: 'tool', name: '_compact', args: { saved: freed } });
+        }
+
+        // MODEL ROUTING: lumipat sa malakas na model kapag sunod na nag-fail o
+        // lalampas sa konteksto ng maliit — sticky na sa gawaing ito.
+        if (routedModel !== STRONG_MODEL) {
+          const needStrong =
+            failStreak >= 2 || totalChars(messages) > (CTX_CHARS[CHEAP_MODEL] || 110000) * 0.9;
+          if (needStrong) {
+            routedModel = STRONG_MODEL;
+            if (!escalatedOnce) {
+              escalatedOnce = true;
+              send({
+                type: 'tool',
+                name: '_escalate',
+                args: { why: failStreak >= 2 ? 'sunod na error' : 'laki ng konteksto' },
+              });
+            }
+          }
+        }
+
         const { reply, error, streamed } = await callModel({
           apiKey,
-          model,
+          model: routedModel,
           messages,
           tools: schemaFor(mode),
           signal: abort.signal,
@@ -755,6 +880,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // ang mga screenshot at ipinapadala bilang mensahe ng user PAGKATAPOS masagot
         // ang lahat ng tool call, para hindi masira ang pagkakapares.
         const shots = [];
+        let stepHadError = false;
 
         for (const call of calls) {
           const name = call.function.name;
@@ -818,7 +944,11 @@ chrome.runtime.onConnect.addListener((port) => {
             tool_call_id: call.id,
             content: JSON.stringify(result).slice(0, 30000),
           });
+          if (result?.error) stepHadError = true;
         }
+
+        // Model routing: sunod na error = senyales na kailangan ng mas malakas na model.
+        failStreak = stepHadError ? failStreak + 1 : 0;
 
         if (shots.length) {
           record({
