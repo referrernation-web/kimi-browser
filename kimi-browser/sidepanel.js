@@ -265,22 +265,72 @@ const showHint = () => ($('hint').textContent = HINTS[$('mode').value]);
 let ttsOn = false;
 let soundOn = true;
 
-chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound', 'autopilot', 'theme']).then((d) => {
-  $('key').value = d.apiKey || '';
-  $('model').value = d.model || 'k3';
-  $('mode').value = d.mode || 'adaptive';
-  ttsOn = !!d.tts;
-  soundOn = d.sound !== false;
-  $('tts').classList.toggle('on', ttsOn);
-  $('sound').classList.toggle('on', soundOn);
-  $('pilot').classList.toggle('on', !!d.autopilot);
-  // Puti ang default — dark lang kapag pinili ng user
-  document.body.dataset.theme = d.theme || 'light';
-  $('theme').textContent = document.body.dataset.theme === 'dark' ? '☀' : '☾';
-  showHint();
-});
-$('key').onchange = () => chrome.storage.local.set({ apiKey: $('key').value.trim() });
-$('model').onchange = () => chrome.storage.local.set({ model: $('model').value });
+// --- PROVIDERS: Kimi, Alibaba DashScope (Qwen), o kahit anong OpenAI-compatible ---
+// Bawat provider ay may sariling naka-save na API key — hindi nagtatapon ng key
+// kapag nagpapalipat-lipat ka.
+const PROVIDERS = {
+  kimi: {
+    keyHint: 'Kimi API key (sk-kimi-...)',
+    models: ['k3', 'k3-256k'],
+  },
+  dashscope: {
+    keyHint: 'DashScope API key (sk-...)',
+    models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwen3-235b-a22b-instruct', 'qwen-vl-max'],
+  },
+  custom: { keyHint: 'API key', models: [] },
+};
+let curProvider = 'kimi';
+let apiKeys = {}; // { kimi: '...', dashscope: '...', custom: '...' }
+
+function fillModels(keepValue = false) {
+  const list = PROVIDERS[curProvider]?.models || [];
+  $('models').replaceChildren(...list.map((m) => Object.assign(document.createElement('option'), { value: m })));
+  if (!keepValue && list.length && !list.includes($('model').value)) {
+    $('model').value = list[0];
+    chrome.storage.local.set({ model: $('model').value });
+  }
+}
+
+chrome.storage.local
+  .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme'])
+  .then((d) => {
+    apiKeys = d.apiKeys || {};
+    // Migration: ang lumang single apiKey ay para sa Kimi.
+    if (d.apiKey && !apiKeys.kimi) apiKeys.kimi = d.apiKey;
+    curProvider = d.provider || 'kimi';
+    $('provider').value = curProvider;
+    $('key').value = apiKeys[curProvider] || '';
+    $('key').placeholder = PROVIDERS[curProvider].keyHint;
+    $('model').value = d.model || 'k3';
+    $('baseurl').value = d.customUrl || '';
+    $('baseurl').style.display = curProvider === 'custom' ? '' : 'none';
+    fillModels(true);
+    $('mode').value = d.mode || 'adaptive';
+    ttsOn = !!d.tts;
+    soundOn = d.sound !== false;
+    $('tts').classList.toggle('on', ttsOn);
+    $('sound').classList.toggle('on', soundOn);
+    $('pilot').classList.toggle('on', !!d.autopilot);
+    // Puti ang default — dark lang kapag pinili ng user
+    document.body.dataset.theme = d.theme || 'light';
+    $('theme').textContent = document.body.dataset.theme === 'dark' ? '☀' : '☾';
+    showHint();
+  });
+
+$('provider').onchange = () => {
+  curProvider = $('provider').value;
+  chrome.storage.local.set({ provider: curProvider });
+  $('key').value = apiKeys[curProvider] || '';
+  $('key').placeholder = PROVIDERS[curProvider].keyHint;
+  $('baseurl').style.display = curProvider === 'custom' ? '' : 'none';
+  fillModels(); // kapag lumipat ng provider, i-suggest ang unang model nito
+};
+$('key').onchange = () => {
+  apiKeys[curProvider] = $('key').value.trim();
+  chrome.storage.local.set({ apiKeys });
+};
+$('model').onchange = () => chrome.storage.local.set({ model: $('model').value.trim() });
+$('baseurl').onchange = () => chrome.storage.local.set({ customUrl: $('baseurl').value.trim() });
 $('mode').onchange = () => {
   chrome.storage.local.set({ mode: $('mode').value });
   showHint();
@@ -371,7 +421,7 @@ const SAYS = {
   run_shortcut: (a) => `Pinapatakbo ang shortcut na "${a.name}"`,
   schedule_task: () => 'Nag-iiskedyul ng gawain',
   _autopilot: (a) => `🛩 Nagpapatuloy (${a.chains}/5): ${String(a.next).slice(0, 60)}`,
-  _escalate: (a) => `Lumipat sa K3 (1M) — ${a.why}`,
+  _escalate: (a) => `Lumipat sa mas malakas na model — ${a.why}`,
 };
 const hostOf = (u) => {
   try {
