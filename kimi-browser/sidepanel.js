@@ -435,7 +435,8 @@ $('auditclear').onclick = () => {
 
 chrome.storage.local
   .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme',
-        'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach', 'ttsEngine', 'cartesiaKey'])
+        'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach', 'ttsEngine', 'cartesiaKey',
+        'mcpUrl', 'mcpToken'])
   .then((d) => {
     apiKeys = d.apiKeys || {};
     // Migration: ang lumang single apiKey ay para sa Kimi; ang groqKey ng Whisper
@@ -463,6 +464,9 @@ chrome.storage.local
     $('cartesiakey').value = d.cartesiaKey || BUILTIN_CARTESIA_KEY;
     syncTtsRow();
     if (ttsEngine === 'cartesia') loadCartesiaVoices();
+    // MCP connectors
+    $('mcpurl').value = d.mcpUrl || '';
+    $('mcptoken').value = d.mcpToken || '';
     // Auditor settings
     auditOn = !!d.audit;
     $('audit').classList.toggle('on', auditOn);
@@ -771,6 +775,8 @@ $('cartesiakey').onchange = () => {
   loadCartesiaVoices();
 };
 $('cartesiavoice').onchange = () => chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
+$('mcpurl').onchange = () => chrome.storage.local.set({ mcpUrl: $('mcpurl').value.trim() });
+$('mcptoken').onchange = () => chrome.storage.local.set({ mcpToken: $('mcptoken').value.trim() });
 
 function maybeSpeak(text) {
   speak(text, () => {
@@ -813,6 +819,8 @@ const SAYS = {
   _audit: (a) => `🗳 Sinusuri nina ${a.model} ang sagot…`,
   _midcheck: (a) => `🧐 Second brain: ${a.note}`,
   _autofix: (a) => `♻ Bumagsak sa ${a.avg}/10 — ipinapasulat muli ang sagot…`,
+  _mcp: (a) => `🔌 MCP konektado — ${a.n} connector tools`,
+  _skill: (a) => `📚 Natutunan ang daloy sa ${a.domain} — magagamit muli sa susunod`,
 };
 const hostOf = (u) => {
   try {

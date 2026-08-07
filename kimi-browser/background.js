@@ -1,4 +1,4 @@
-import { needsApproval, schemaFor, runTool, setOverlay, setStatus, setCaption, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
+import { needsApproval, schemaFor, runTool, setOverlay, setStatus, setCaption, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL, WRITES } from './tools.js';
 import { promptFor } from './memory.js';
 
 // --- PROVIDERS ---
@@ -194,6 +194,83 @@ export function toolTrail(messages, limit = 24) {
   return lines.slice(-limit).join('\n');
 }
 
+// --- MCP CONNECTORS ---
+// Isang MCP server URL (Streamable HTTP) = daan-daang connector: ang mga aggregator
+// tulad ng Zapier MCP o Composio ay naglalantad ng Gmail, Sheets, Slack, atbp. sa
+// likod ng iisang endpoint. Ang mga tool nito ay isinasama sa schema ng worker at
+// tinatrato bilang WRITE (may pahintulot) dahil panlabas na aksyon ang mga ito.
+let mcpSeq = 0;
+const mcpState = { url: '', token: '', sessionId: null, tools: [], nameMap: {} };
+
+async function mcpFetch(method, params, notify = false) {
+  const res = await fetch(mcpState.url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      ...(mcpState.token ? { Authorization: `Bearer ${mcpState.token}` } : {}),
+      ...(mcpState.sessionId ? { 'Mcp-Session-Id': mcpState.sessionId } : {}),
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', ...(notify ? {} : { id: ++mcpSeq }), method, ...(params ? { params } : {}) }),
+  });
+  const sid = res.headers.get('mcp-session-id');
+  if (sid) mcpState.sessionId = sid;
+  if (notify) return null;
+  if (!res.ok) throw new Error(`MCP ${res.status}`);
+  const ct = res.headers.get('content-type') || '';
+  let data = null;
+  if (ct.includes('event-stream')) {
+    // Ang sagot ay maaaring SSE — kunin ang huling JSON na may result/error.
+    for (const line of (await res.text()).split('\n')) {
+      if (!line.startsWith('data:')) continue;
+      try {
+        const j = JSON.parse(line.slice(5));
+        if (j.result !== undefined || j.error !== undefined) data = j;
+      } catch {}
+    }
+  } else {
+    data = await res.json();
+  }
+  if (data?.error) throw new Error(data.error.message || 'MCP error');
+  return data?.result;
+}
+
+async function mcpConnect(url, token) {
+  if (mcpState.url === url && mcpState.token === token && mcpState.tools.length) return; // buhay pa ang session
+  Object.assign(mcpState, { url, token, sessionId: null, tools: [], nameMap: {} });
+  await mcpFetch('initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'kimi-browser', version: '0.10.0' },
+  });
+  await mcpFetch('notifications/initialized', undefined, true);
+  const res = await mcpFetch('tools/list', {});
+  mcpState.tools = (res?.tools || []).slice(0, 40); // sapat na ang 40 — ang sobra ay gulo sa model
+  for (const t of mcpState.tools) {
+    mcpState.nameMap['mcp_' + t.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50)] = t.name;
+  }
+}
+
+function mcpSchema() {
+  return mcpState.tools.map((t) => ({
+    type: 'function',
+    function: {
+      name: 'mcp_' + t.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50),
+      description: `[MCP connector] ${String(t.description || t.name).slice(0, 300)}`,
+      parameters: t.inputSchema || { type: 'object', properties: {} },
+    },
+  }));
+}
+
+async function mcpCall(sanName, args) {
+  const r = await mcpFetch('tools/call', { name: mcpState.nameMap[sanName] || sanName.slice(4), arguments: args || {} });
+  const text = (r?.content || [])
+    .map((c) => (c.type === 'text' ? c.text : `[${c.type}]`))
+    .join('\n')
+    .slice(0, 20000);
+  return r?.isError ? { error: text || 'Nabigo ang MCP tool.' } : { ok: true, resulta: text || '(walang laman)' };
+}
+
 // Pinapatay ng Chrome ang service worker pagkatapos ng ~30s na walang tawag sa Chrome API.
 // Ang mahabang pag-iisip ng model ay tahimik sa mata ng Chrome, kaya kumakatok tayo tuwing
 // 20 segundo habang may tumatakbo. Walang permission na kailangan ang getPlatformInfo.
@@ -319,7 +396,7 @@ mula sa caption mismo, at magmungkahi batay doon.`;
 async function getSettings() {
   const d = await chrome.storage.local.get([
     'apiKey', 'apiKeys', 'provider', 'customUrl', 'model', 'strongModel', 'mode', 'autopilot',
-    'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach',
+    'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach', 'mcpUrl', 'mcpToken',
   ]);
   const provider = d.provider || 'kimi';
   const keys = d.apiKeys || {};
@@ -355,6 +432,8 @@ async function getSettings() {
     mode: d.mode || 'adaptive',
     autopilot: !!d.autopilot,
     teach: !!d.teach,
+    mcpUrl: (d.mcpUrl || '').trim(),
+    mcpToken: (d.mcpToken || '').trim(),
     audit: !!d.audit,
     auditProvider,
     auditUrl,
@@ -810,7 +889,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     run = { id: msg.runId, sessionId: msg.sessionId };
 
-    const { apiKey, baseUrl, model, strongModel, mode, autopilot, teach,
+    const { apiKey, baseUrl, model, strongModel, mode, autopilot, teach, mcpUrl, mcpToken,
             audit, auditProvider, auditUrl, auditKey, auditModel } = await getSettings();
     const runStartAt = Date.now(); // para sa usage tracking
     let routedModel = model; // deklarado agad para ligtas sa finally
@@ -840,11 +919,34 @@ chrome.runtime.onConnect.addListener((port) => {
 
     // Ang panel ang nagpapadala ng buong kasaysayan, kaya kahit namatay ang
     // service worker, buo pa rin ang usapan.
+    // MCP: ikonekta at isama ang mga connector tool sa schema ng worker. Ang mga ito
+    // ay panlabas na aksyon (Gmail, Sheets, atbp.) kaya WRITE — may pahintulot.
+    let mcpTools = [];
+    if (mcpUrl && mode !== 'plan' && mode !== 'coach') {
+      try {
+        await mcpConnect(mcpUrl, mcpToken);
+        mcpTools = mcpSchema();
+        for (const t of mcpTools) WRITES.add(t.function.name);
+        send({ type: 'tool', name: '_mcp', args: { n: mcpTools.length } });
+      } catch (e) {
+        send({ type: 'error', text: `Hindi maka-connect sa MCP (${e.message}) — tuloy pa rin nang wala ito.` });
+      }
+    }
+
+    // AUTO-SKILLS: ang mga napatunayang daloy sa site na ito (mula sa mga dating
+    // matagumpay na takbo) ay isinasama sa system prompt — hindi na mag-iisip mula
+    // sa wala ang agent sa mga paulit-ulit na gawain.
+    const { workflows = {} } = await chrome.storage.local.get('workflows');
+    const flows = workflows[await currentDomain()] || [];
+    const flowNote = flows.length
+      ? `\n\nMGA NAPATUNAYANG DALOY SA SITE NA ITO (galing sa dati mong matagumpay na takbo — sundan kung angkop sa gawain):\n${flows.join('\n---\n')}`
+      : '';
+
     const modeNote = mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : '';
     const wpNote = (await workingUrl()).includes('wp-admin') ? WP_PLAYBOOK : '';
     const system =
       `Ang model na tumatakbo ngayon: ${model}. Kapag tinanong kung sino ka, ito ang sabihin mo — huwag magpanggap na ibang model.\n\n` +
-      SYSTEM + modeNote + wpNote + (await promptFor(await currentDomain()));
+      SYSTEM + modeNote + wpNote + flowNote + (await promptFor(await currentDomain()));
     messages = [{ role: 'system', content: system }, ...(msg.history || [])];
     abort = new AbortController();
     const stopKeepAlive = keepAlive();
@@ -1084,14 +1186,78 @@ chrome.runtime.onConnect.addListener((port) => {
       } catch {} // ang gabay ay hindi dapat magpabagsak ng gawain
     }
 
+    // AUTO-SKILLS (Agent Workflow Memory): ang matagumpay na daloy ay dinidistill
+    // bilang muling magagamit na workflow kada site — +51% relative success rate ang
+    // sinukat ng AWM paper sa ganitong pag-iipon, na may mas kaunting hakbang. Ang
+    // quality gate: score ≥8 mula sa second brain at ≥5 hakbang — hindi lahat ng
+    // takbo ay karapat-dapat maging aral.
+    async function distillWorkflow() {
+      try {
+        const domain = await currentDomain();
+        if (!domain) return;
+        const res = await fetch(baseUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model,
+            max_tokens: 300,
+            messages: [
+              ...messages,
+              {
+                role: 'user',
+                content:
+                  'Tagumpay ang gawaing ito. I-distill mo ito bilang MULING MAGAGAMIT na workflow ' +
+                  'para sa site na ito: isang linyang pamagat, tapos 3-8 numerado na hakbang. ' +
+                  'Pangkalahatan ang mga hakbang — walang one-time na detalye (eksaktong presyo, ' +
+                  'pangalan ng isang listing). 100 salita ang sukdulan. Workflow lang ang isulat mo.',
+              },
+            ],
+          }),
+          signal: abort.signal,
+        });
+        if (!res.ok) return;
+        const text = (await res.json()).choices?.[0]?.message?.content?.trim();
+        if (!text || text.length < 40) return;
+        const { workflows = {} } = await chrome.storage.local.get('workflows');
+        const arr = workflows[domain] || [];
+        arr.unshift(text.slice(0, 700));
+        workflows[domain] = arr.slice(0, 4); // apat na pinakabago kada site — sapat, hindi gulo
+        await chrome.storage.local.set({ workflows });
+        send({ type: 'tool', name: '_skill', args: { domain } });
+      } catch {} // ang pag-aaral ay hindi dapat magpabagsak ng natapos nang gawain
+    }
+
     let failStreak = 0; // sunod na step na may error — para sa model routing
     let escalatedOnce = false;
     let autoFixed = false; // isang pagwawasto lang kada gawain
+    let lastPlan = null; // ang huling tawag sa `plan` — ginagamit ng recitation
 
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
-        const saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages);
+        // CACHE-FRIENDLY COMPACTION: ang pagbabago ng mga LUMANG mensahe ay pumapatay
+        // ng prompt cache (10-100x na mas mahal ang uncached input, mas mabagal pa).
+        // Kaya hindi na tayo nagko-compact kada hakbang — hinihintay munang umabot sa
+        // 60% ng konteksto, saka pumuputol nang isang beses. Sa pagitan, append-only
+        // ang usapan at buhay ang cache. (Diskarte mula sa Manus context engineering.)
+        let saved = 0;
+        if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.6) {
+          saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages);
+        }
         if (saved > 2000) send({ type: 'tool', name: '_compact', args: { saved } });
+
+        // RECITATION (diskarte ng Manus): sa mahabang gawain, nawawala ang layunin sa
+        // gitna ng konteksto. Kada 8 hakbang, isinusulat muli ang plano sa DULO para
+        // laging nasa kamakailang attention ng model. Append lang — buhay ang cache.
+        if (lastPlan && step > 0 && step % 8 === 0) {
+          const doneN = Math.max(0, Math.round(lastPlan.done || 0));
+          record({
+            role: 'user',
+            content:
+              '[PAALALA NG PLANO — awtomatiko, hindi galing sa user] ' +
+              (lastPlan.steps || []).map((s, i) => `${i < doneN ? '✓' : i === doneN ? '▸' : '○'} ${s}`).join(' · ') +
+              ' — i-update ang plan tool kapag may natapos.',
+          });
+        }
 
         // AUTO-COMPACTION: bago mapuno ang konteksto, i-summarize ang naunang bahagi.
         if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.85) {
@@ -1125,7 +1291,7 @@ chrome.runtime.onConnect.addListener((port) => {
           apiKey,
           model: routedModel,
           messages,
-          tools: schemaFor(mode),
+          tools: schemaFor(mode).concat(mcpTools),
           signal: abort.signal,
           onDelta: (type, text) => send({ type, text }),
         });
@@ -1195,6 +1361,8 @@ chrome.runtime.onConnect.addListener((port) => {
               });
               continue; // babalik sa loop — bagong sagot ang lalabas
             }
+            // Pumasa nang mataas at may laman ang gawain — aralin ang daloy.
+            if (verdict && verdict.avg >= 8 && step >= 5) distillWorkflow(); // huwag hintayin
           }
           // Hindi hinihintay ang reflect — ang pagkatuto ay hindi dapat magpabagal
           // ng "tapos na". Kung mapatay man ang service worker bago ito matapos,
@@ -1216,6 +1384,7 @@ chrome.runtime.onConnect.addListener((port) => {
           try {
             args = JSON.parse(call.function.arguments || '{}');
           } catch {}
+          if (name === 'plan') lastPlan = args; // para sa recitation
 
           let result;
           if (name === 'collect') {
@@ -1254,7 +1423,7 @@ chrome.runtime.onConnect.addListener((port) => {
                 run_shortcut: `Pinapatakbo ang ${args.name || 'shortcut'}`,
                 schedule_task: 'Nag-iiskedyul ng gawain',
                 plan: 'Nagpaplano…',
-              })[name] || name
+              })[name] || (name.startsWith('mcp_') ? `Connector: ${name.slice(4)}` : name)
             );
             if (needsApproval(mode, name)) notify(`Pahintulot: ${name}`, JSON.stringify(args));
             if (needsApproval(mode, name) && !(await prompt({ type: 'confirm', tool: name, args }))) {
@@ -1262,7 +1431,7 @@ chrome.runtime.onConnect.addListener((port) => {
             } else {
               markApproved(name); // sa Adaptive: isang pahintulot, tiwala na sa buong gawain
               try {
-                result = await runTool(name, args);
+                result = name.startsWith('mcp_') ? await mcpCall(name, args) : await runTool(name, args);
                 // Ang mikropono ay nakikinig sa kwarto, hindi sa tab — kaya dito nito
                 // naaabutan ang caption, at dito nagagawang marinig ang voice call.
                 if (name === 'listen') {

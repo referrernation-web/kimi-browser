@@ -3,6 +3,22 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.10.0 (mas mabilis, mas matalino, at nakakonekta na sa labas)
+
+- **🔌 MCP connectors** — ilagay sa ⚙ ang URL ng kahit anong MCP server (hal. Zapier
+  MCP o Composio — daan-daang app tulad ng Gmail/Sheets/Slack sa likod ng iisang URL)
+  at magiging tools na ito ng agent. May pahintulot ang bawat connector na aksyon,
+  tulad ng ibang write actions.
+- **Cache-friendly na compaction** — hindi na binabago ang usapan kada hakbang (pumapatay
+  yun ng prompt cache = 10-100x na mas mahal at mas mabagal). Ngayon, append-only ang
+  usapan hanggang 60% ng konteksto, saka isang malaking putol. Diskarte mula sa Manus.
+- **Recitation ng plano** — kada 8 hakbang, isinusulat muli ang plano sa dulo ng usapan
+  para hindi maligaw ang model sa mahahabang gawain ("lost in the middle" ang gamot).
+- **📚 Auto-skills** — kapag pumasa ang gawain sa second brain (≥8/10, ≥5 hakbang),
+  kusang dinidistill ang daloy bilang workflow ng site na iyon at gagamitin sa susunod —
+  +51% success rate ang sinukat ng Agent Workflow Memory paper sa ganitong pag-iipon.
+  (Kailangang naka-ON ang 🧐 para may quality gate.)
+
 ## Anong bago sa v0.9.0 (solid na tandem ang worker at second brain)
 
 - **♻ Auto-fix** — dati, nahuhuli ng auditor ang masamang sagot pero IKAW pa ang
