@@ -7,10 +7,11 @@ import { promptFor } from './memory.js';
 // kahit anong OpenAI-compatible na serbisyo (OpenRouter, Together, lokal na server, atbp.).
 const PROVIDER_URLS = {
   kimi: 'https://api.kimi.com/coding/v1/chat/completions',
+  tokenplan: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
   dashscope: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
 };
 // Ang default na "malakas" na model kada provider — target ng model routing escalation.
-const STRONG_DEFAULTS = { kimi: 'k3', dashscope: 'qwen-max' };
+const STRONG_DEFAULTS = { kimi: 'k3', tokenplan: 'qwen3.8-max', dashscope: 'qwen-max' };
 
 const MAX_STEPS = 60; // ang pananaliksik na dumadaan sa maraming listing ay lumalampas sa 30
 
