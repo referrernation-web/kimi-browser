@@ -253,6 +253,7 @@ function getPort() {
 
 // --- SETTINGS: nabubuhay sa chrome.storage.local, hindi sa code ---
 const HINTS = {
+  adaptive: 'Nagtatanong sa unang beses ng bawat aksyon, tapos tiwala na sa buong gawain.',
   manual: 'Nagtatanong bago ang bawat aksyon.',
   auto: 'Kusang kumikilos; nagtatanong pa rin sa hindi na maibabalik.',
   plan: 'Read-only. Nagbabasa at nagpaplano, hindi kumikilos.',
@@ -267,7 +268,7 @@ let soundOn = true;
 chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound']).then((d) => {
   $('key').value = d.apiKey || '';
   $('model').value = d.model || 'k3';
-  $('mode').value = d.mode || 'manual';
+  $('mode').value = d.mode || 'adaptive';
   ttsOn = !!d.tts;
   soundOn = d.sound !== false;
   $('tts').classList.toggle('on', ttsOn);
