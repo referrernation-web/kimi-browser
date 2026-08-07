@@ -402,15 +402,36 @@ function fillModels(keepValue = false, want = '') {
 // para sa provider na iyon, kaya walang bagong key na kailangan ilagay.
 let auditOn = false;
 
+// Ang auditor ay pwedeng MARAMING model (voting), kaya ang picker ay nagdadagdag
+// sa listahan sa halip na pumalit — pero kita mo pa rin ang lahat ng mapagpipilian.
 function fillAModels(keepValue = false) {
   const p = $('auditprovider').value;
   const list = PROVIDERS[p]?.models || [];
-  $('amodels').replaceChildren(...list.map((m) => Object.assign(document.createElement('option'), { value: m })));
-  if (!keepValue && list.length && !list.includes($('auditmodel').value)) {
+  $('amodelpick').replaceChildren(
+    new Option(list.length ? `+ pumili (${list.length})` : '+ pumili', ''),
+    ...list.map((m) => new Option(m, m))
+  );
+  if (!keepValue && list.length && !$('auditmodel').value.trim()) {
     $('auditmodel').value = list[0];
     chrome.storage.local.set({ auditModel: $('auditmodel').value });
   }
 }
+
+$('amodelpick').onchange = () => {
+  const m = $('amodelpick').value;
+  $('amodelpick').value = '';
+  if (!m) return;
+  const cur = $('auditmodel').value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (cur.includes(m)) return; // nandiyan na — huwag doblehin
+  if (cur.length >= 3) return; // 3 ang hangganan ng voting
+  cur.push(m);
+  $('auditmodel').value = cur.join(', ');
+  chrome.storage.local.set({ auditModel: $('auditmodel').value });
+};
+$('auditclear').onclick = () => {
+  $('auditmodel').value = '';
+  chrome.storage.local.set({ auditModel: '' });
+};
 
 chrome.storage.local
   .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme',
@@ -436,15 +457,16 @@ chrome.storage.local
     $('pilot').classList.toggle('on', !!d.autopilot);
     $('teach').classList.toggle('on', !!d.teach);
     // TTS engine: browser o Cartesia Sonic
-    ttsEngine = d.ttsEngine || 'browser';
+    // Cartesia ang default — natural na Tagalog agad, walang setup na kailangan.
+    ttsEngine = d.ttsEngine || 'cartesia';
     $('ttsengine').value = ttsEngine;
-    $('cartesiakey').value = d.cartesiaKey || '';
+    $('cartesiakey').value = d.cartesiaKey || BUILTIN_CARTESIA_KEY;
     syncTtsRow();
-    if (ttsEngine === 'cartesia' && d.cartesiaKey) loadCartesiaVoices();
+    if (ttsEngine === 'cartesia') loadCartesiaVoices();
     // Auditor settings
     auditOn = !!d.audit;
     $('audit').classList.toggle('on', auditOn);
-    $('auditrow').style.display = auditOn ? '' : 'none';
+    $('auditrow').style.display = $('auditrow2').style.display = auditOn ? '' : 'none';
     $('auditprovider').value = d.auditProvider || 'tokenplan';
     $('auditmodel').value = d.auditModel || 'qwen3.8-max';
     fillAModels(true);
@@ -638,8 +660,14 @@ $('sound').onclick = () => {
 // Dalawang engine: browser speechSynthesis (libre, robotic) at Cartesia Sonic
 // (natural na Tagalog — sonic-3, language 'tl', kaya pati Taglish maayos basahin).
 // Libre ang 20K characters/buwan sa Cartesia, kaya naka-cap sa 1200 chars kada basa.
-let ttsEngine = 'browser';
+let ttsEngine = 'cartesia';
 let ttsAudio = null;
+
+// Naka-baked na ang key at ang default na Tagalog na boses ("Mae — Calm Authority"),
+// kaya gumagana agad ang natural na boses nang walang setup. PRIVATE ang repo na ito —
+// huwag itong gawing public habang nandito ang key.
+const BUILTIN_CARTESIA_KEY = 'sk_car_zamqr6RtPKY1tpkgEN8yfM';
+const BUILTIN_CARTESIA_VOICE = '6d14ac2a-4dda-46f8-bd6f-0722db08ec00';
 
 function ttsStop() {
   speechSynthesis.cancel();
@@ -660,19 +688,21 @@ function speakBrowser(text, then) {
 
 async function speakCartesia(text, then) {
   const { cartesiaKey, cartesiaVoice } = await chrome.storage.local.get(['cartesiaKey', 'cartesiaVoice']);
-  if (!cartesiaKey || !cartesiaVoice) return speakBrowser(text, then);
+  // Laging may key at boses — ang browser voice ay huling dulot lang kapag nag-error.
+  const key = cartesiaKey || BUILTIN_CARTESIA_KEY;
+  const voice = cartesiaVoice || BUILTIN_CARTESIA_VOICE;
   try {
     const res = await fetch('https://api.cartesia.ai/tts/bytes', {
       method: 'POST',
       headers: {
         'Cartesia-Version': '2026-03-01',
-        Authorization: `Bearer ${cartesiaKey}`,
+        Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         model_id: 'sonic-3',
         transcript: text,
-        voice: { mode: 'id', id: cartesiaVoice },
+        voice: { mode: 'id', id: voice },
         language: 'tl',
         output_format: { container: 'mp3', sample_rate: 44100, bit_rate: 128000 },
       }),
@@ -705,7 +735,7 @@ function speak(text, then) {
 // Ang mga boses ng Cartesia — live mula sa API, Tagalog muna; kapag walang tl na
 // boses, ipapakita ang lahat (kaya ng kahit anong Sonic voice ang 'tl' via language).
 async function loadCartesiaVoices() {
-  const key = $('cartesiakey').value.trim();
+  const key = $('cartesiakey').value.trim() || BUILTIN_CARTESIA_KEY;
   if (!key) return;
   const hdr = { 'Cartesia-Version': '2026-03-01', Authorization: `Bearer ${key}` };
   try {
@@ -718,11 +748,10 @@ async function loadCartesiaVoices() {
     $('cartesiavoice').replaceChildren(
       ...voices.map((v) => new Option(v.language === 'tl' ? v.name : `${v.name} (${v.language})`, v.id))
     );
-    if (cartesiaVoice && voices.some((v) => v.id === cartesiaVoice)) {
-      $('cartesiavoice').value = cartesiaVoice;
-    } else {
-      chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
-    }
+    // Ang naka-save na pili ang mananaig; kung wala, ang default na Tagalog na boses.
+    const want = [cartesiaVoice, BUILTIN_CARTESIA_VOICE].find((id) => voices.some((v) => v.id === id));
+    $('cartesiavoice').value = want || $('cartesiavoice').value;
+    if (!cartesiaVoice) chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
   } catch {} // ang picker ay palamuti — may fallback naman sa browser voice
 }
 
@@ -1710,7 +1739,7 @@ $('mem').onclick = async () => {
 $('audit').onclick = () => {
   auditOn = !auditOn;
   $('audit').classList.toggle('on', auditOn);
-  $('auditrow').style.display = auditOn ? '' : 'none';
+  $('auditrow').style.display = $('auditrow2').style.display = auditOn ? '' : 'none';
   syncMenuDot();
   chrome.storage.local.set({ audit: auditOn });
   const s = active();

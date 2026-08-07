@@ -1,5 +1,24 @@
 # Kimi K3 Browser
 
+> ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
+> `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
+
+## Anong bago sa v0.8.1
+
+- **Dropdown na rin ang second brain** — may picker na sa auditor: kita mo lahat ng
+  model ng provider nito (live mula sa /models), at ang pagpili ay NAGDADAGDAG sa
+  listahan — kaya buo pa rin ang voting (hanggang 3 model). May ✕ para linisin.
+- **Hindi na tahimik kapag mali ang setup ng second brain** — dati, kapag "Custom"
+  ang provider nito na walang base URL, hindi talaga tumatakbo ang auditor pero
+  akala mo tumatakbo. Ngayon: kusang gagamit ng provider ng worker, at kung may
+  kulang pa rin, sasabihin sa iyo kung ano.
+
+- **Cartesia na ang default na boses** — natural na Tagalog agad pagbukas, hindi na
+  ang robotic na browser voice. Naka-baked na ang API key at ang default na boses
+  (**Mae — Calm Authority**), kaya walang setup na kailangan: i-on lang ang 🗣 sa ⋯ menu.
+- Mapapalitan pa rin ang boses sa ⚙ → 🗣 Boses — 8 Tagalog voices ang mapagpipilian:
+  Mae, Angel, Joy, Liezel, Luz (babae); Jerome, Juan, Angelo (lalaki).
+
 ## Anong bago sa v0.8.0 (natural na Tagalog na boses)
 
 - **🗣 Cartesia Sonic TTS** — sa ⚙ settings, piliin ang "Cartesia Sonic (natural na

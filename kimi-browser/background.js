@@ -295,7 +295,10 @@ async function getSettings() {
 
   // Ang AUDITOR: ikalawang AI na nagsusuri ng trabaho ng worker — ibang provider,
   // ibang key, ibang model. Pwede silang pagsabayin dahil hiwalay ang tawag nito.
-  const auditProvider = d.auditProvider || 'tokenplan';
+  // Kapag "custom" ang auditor pero walang base URL, dating tahimik itong hindi
+  // tumatakbo. Ginagamit na lang natin ang provider ng worker — may key na doon.
+  let auditProvider = d.auditProvider || 'tokenplan';
+  if (auditProvider === 'custom' && !d.customUrl) auditProvider = provider;
   const auditModel = d.auditModel || 'qwen3.8-max';
   const auditUrl =
     auditProvider === 'custom' ? (d.customUrl || '') : PROVIDER_URLS[auditProvider] || '';
@@ -311,6 +314,7 @@ async function getSettings() {
     autopilot: !!d.autopilot,
     teach: !!d.teach,
     audit: !!d.audit,
+    auditProvider,
     auditUrl,
     auditKey,
     auditModel,
@@ -753,7 +757,7 @@ chrome.runtime.onConnect.addListener((port) => {
     run = { id: msg.runId, sessionId: msg.sessionId };
 
     const { apiKey, baseUrl, model, strongModel, mode, autopilot, teach,
-            audit, auditUrl, auditKey, auditModel } = await getSettings();
+            audit, auditProvider, auditUrl, auditKey, auditModel } = await getSettings();
     const runStartAt = Date.now(); // para sa usage tracking
     let routedModel = model; // deklarado agad para ligtas sa finally
 
@@ -902,7 +906,18 @@ chrome.runtime.onConnect.addListener((port) => {
     // field, hal. "qwen3.8-max, deepseek-v4-pro"). Bawat isa ay may SCORE na boto;
     // ang average ang consensus. Magkahiwalay na tawag, magkakasabay tumatakbo.
     async function runAudit(finalText) {
-      if (!audit || !auditKey || !auditUrl || !finalText) return;
+      if (!audit || !finalText) return;
+      // Dating tahimik itong bumabagsak — kaya akala mo tumatakbo ang second brain
+      // pero wala palang nangyayari. Ngayon, sinasabi na kung ano ang kulang.
+      if (!auditUrl || !auditKey) {
+        send({
+          type: 'error',
+          text: !auditUrl
+            ? 'Naka-ON ang 🧐 second brain pero walang base URL ang provider nito. Sa ⚙ → 🧐, pumili ng totoong provider (hal. Alibaba Token Plan) sa halip na "Custom", o maglagay ng base URL.'
+            : `Naka-ON ang 🧐 second brain pero walang API key para sa provider nitong "${auditProvider}". Maglagay ng key sa ⚙.`,
+        });
+        return;
+      }
       const models = String(auditModel)
         .split(',')
         .map((s) => s.trim())

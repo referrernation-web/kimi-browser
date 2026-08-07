@@ -285,8 +285,8 @@
         <div class="row" id="ttsrow">
           <span class="dim" style="flex:none">🗣 Boses:</span>
           <select id="ttsengine" title="TTS engine" style="width:auto;flex:none">
-            <option value="browser">Browser (libre)</option>
             <option value="cartesia">Cartesia Sonic (natural na Tagalog)</option>
+            <option value="browser">Browser (robotic)</option>
           </select>
           <input id="cartesiakey" type="password" placeholder="Cartesia key (sk_car_...)" style="display:none" />
           <select id="cartesiavoice" title="Boses" style="display:none;max-width:140px"></select>
@@ -300,8 +300,13 @@
             <option value="dashscope">Alibaba Qwen</option>
             <option value="custom">Custom</option>
           </select>
-          <input id="auditmodel" list="amodels" placeholder="hal. qwen3.8-max, deepseek-v4-pro" title="Model(s) ng auditor — comma-separated para sa voting" />
-          <datalist id="amodels"></datalist>
+          <!-- Picker na nagdadagdag sa listahan sa ibaba: kaya pa ring mag-voting
+               (comma-separated) pero kita mo na LAHAT ng model, hindi na hulaan. -->
+          <select id="amodelpick" title="Idagdag ang model sa auditor" style="width:auto;flex:none"></select>
+        </div>
+        <div class="row" id="auditrow2" style="display:none">
+          <input id="auditmodel" placeholder="hal. qwen3.8-max, deepseek-v4-pro" title="Model(s) ng auditor — comma-separated para sa voting" />
+          <button id="auditclear" title="Linisin ang listahan">✕</button>
         </div>
       </div>
     </header>
