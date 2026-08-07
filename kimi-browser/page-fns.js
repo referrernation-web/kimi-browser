@@ -534,3 +534,18 @@ export function applyStep(step) {
   }
   return { error: `Hindi kilalang hakbang: ${step.action}` };
 }
+
+// --- VERIFICATION LOOP ---
+// Mura at mabilis na "pagbabago signature" ng page: URL + title + laki ng text +
+// bilang ng interactive na elemento. Kinukuha bago at pagkatapos ng aksyon — ang
+// paghahambing ang nagsasabi sa model kung tumalab ba, nang walang dagdag na API call.
+export function pageSig() {
+  return {
+    url: location.href,
+    title: document.title,
+    sig:
+      (document.body?.innerText.length || 0) +
+      ':' +
+      document.querySelectorAll('a,button,input,select,textarea').length,
+  };
+}
