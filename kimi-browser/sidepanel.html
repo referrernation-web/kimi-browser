@@ -15,15 +15,15 @@
         --ask: #0b7a5a;    --askbg: #e2f6ef;  --askline: #8fd6bf;
         --err: #c0392b;    --errbg: #fdeceb;
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #1b1d21;     --fg: #eceef1;    --dim: #a3abb8;
-          --panel: #24272c;  --line: #3a3f47;  --field: #2b2f35;
-          --accent: #9b85ff; --userbg: #322b52;
-          --warn: #f0b657;   --warnbg: #3a2f1c; --warnline: #6b5528;
-          --ask: #63d6ae;    --askbg: #1d3830;  --askline: #2f6353;
-          --err: #ff8b7d;    --errbg: #3a2320;
-        }
+      /* Ang dark mode ay MANUAL na pinipili (☾ button) — hindi na sumusunod sa
+         system theme. Puti ang default, gusto ng user. */
+      body[data-theme='dark'] {
+        --bg: #1b1d21;     --fg: #eceef1;    --dim: #a3abb8;
+        --panel: #24272c;  --line: #3a3f47;  --field: #2b2f35;
+        --accent: #9b85ff; --userbg: #322b52;
+        --warn: #f0b657;   --warnbg: #3a2f1c; --warnline: #6b5528;
+        --ask: #63d6ae;    --askbg: #1d3830;  --askline: #2f6353;
+        --err: #ff8b7d;    --errbg: #3a2320;
       }
       * { box-sizing: border-box; }
       body {
@@ -201,6 +201,7 @@
       <button id="pilot" title="Autopilot — kusang nagpapatuloy sa susunod na hakbang (max 5 na kadena)">🛩</button>
       <button id="rec" title="Record — i-record ang mga pindot mo sa working tab bilang shortcut">⏺</button>
       <button id="sched" title="Mga naka-iskedyul na gawain">⏰</button>
+      <button id="theme" title="Dark / light mode">☾</button>
       <button id="newtab" title="Bagong usapan">✚</button>
     </div>
 
