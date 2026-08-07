@@ -3,10 +3,24 @@
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 
+## Anong bago sa v0.4.0 (multi-provider)
+
+- **Hindi na Kimi lang** — piliin ang provider sa panel: **Kimi**, **Alibaba Qwen**
+  (DashScope, OpenAI-compatible endpoint), o **Custom** (kahit anong OpenAI-compatible
+  na serbisyo — OpenRouter, Together, lokal na server; ilalagay mo ang base URL).
+- **Bawat provider ay may sariling naka-save na API key** — hindi nababura kapag
+  nagpapalipat-lipat ka.
+- **Free-form na model field** na may suggestions per provider (qwen-max, qwen-plus,
+  qwen-turbo, qwen3, qwen-vl-max, atbp.) — pwede ring mag-type ng kahit anong model name.
+- Ang model routing ay gumagana pa rin: lumilipat sa "malakas" na model ng provider
+  (Kimi → k3, Qwen → qwen-max) kapag sunod na nag-fail o malaki ang konteksto.
+- Tandaan: ang vision (screenshot/image tools) ay nangangailangan ng vision-capable
+  na model — sa Qwen, piliin ang `qwen-vl-max` kung gagamit ka ng screenshots.
+
 ## Anong bago sa v0.3.1 (harness upgrade — parang mga tip sa Reddit)
 
-- **Model routing** — `k3-256k` (mabilis/mura) ang default ng buong loop; kusang
-  lumilipat sa `k3` (1M) kapag dalawang sunod na step ang may error o lalampas sa
+- **Model routing** — ang pinili mong model ang default ng buong loop; kusang
+  lumilipat sa malakas na model kapag dalawang sunod na step ang may error o lalampas sa
   konteksto. Bayad ka lang ng malakas na model kapag kailangan talaga.
 - **Auto-compaction** — bago mapuno ang konteksto, ini-summarize ng model ang naunang
   bahagi ng usapan at iyon lang ang pinapanatili (may tool-pairing safety). Ang mga
@@ -57,9 +71,9 @@ yan ang dahilan kung bakit extension ito at hindi remote browser.
 2. Buksan ang **Developer mode** (kanang taas)
 3. **Load unpacked** → piliin ang folder na ito (yung may `manifest.json` mismo sa loob)
 4. Pindutin ang icon ng extension para buksan ang side panel
-5. Ilagay ang Kimi API key mo sa taas ng panel (galing sa kimi.com/code/console)
+5. Piliin ang provider (Kimi / Alibaba Qwen / Custom) at ilagay ang API key nito
 
-Naka-`chrome.storage.local` ang key — wala sa code, hindi napupunta sa git.
+Naka-`chrome.storage.local` ang mga key — wala sa code, hindi napupunta sa git.
 
 ## Modes
 
@@ -92,10 +106,10 @@ ng ibang session tab, babalik ang tanong kapag bumalik ka sa tab na iyon.
 
 | File | Laman |
 |---|---|
-| `background.js` | agent loop, Kimi API (streaming), permission gate, scope group setup, autopilot, alarms, model routing, auto-compaction |
+| `background.js` | agent loop, multi-provider API (streaming), permission gate, scope group setup, autopilot, alarms, model routing, auto-compaction |
 | `tools.js` | tool schema + dispatch, working tab logic, waitForLoad, generate_image, shortcuts, schedules |
 | `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type, console hook, paste, recorder, page signature) |
-| `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export, autopilot/record/schedule buttons |
+| `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export, provider/model settings |
 | `memory.js` | natutunan niya per-site at tungkol sa iyo |
 | `history.js` | pag-aayos ng mga naulilang tool call |
 | `offscreen.*` | pagkuha ng tunog ng tab para sa Groq Whisper |
