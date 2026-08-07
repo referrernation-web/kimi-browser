@@ -3,19 +3,28 @@
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 
+## Anong bago sa v0.5.0 (second opinion — dalawang AI, magkasabay)
+
+- **Worker + Auditor combo** (🧐) — iba ang AI na gumagawa, iba ang nagsusuri. Halimbawa:
+  Kimi K3 ang worker, qwen3.8-max ang auditor — o baliktad. Hiwalay na provider, key, at
+  tawag, kaya **sabay silang tumatakbo**.
+- Pagkatapos ng gawain, kusang sinusuri ng auditor ang huling sagot: may mali ba, may
+  kulang ba, may panganib ba, may mas magandang paraan ba — lumalabas bilang audit bubble
+  na may **"✉ Ipasa ang puna kay worker"** button para mag-usap ang dalawang AI.
+- **Vision correction:** ang qwen3.8-max, qwen3.7-plus, at qwen3.6-flash sa Token Plan ay
+  may **Visual Understanding** pala — gumagana ang screenshots/image attachments sa kanila.
+
 ## Anong bago sa v0.4.0 (multi-provider)
 
-- **Hindi na Kimi lang** — piliin ang provider sa panel: **Kimi**, **Alibaba Qwen**
-  (DashScope, OpenAI-compatible endpoint), o **Custom** (kahit anong OpenAI-compatible
-  na serbisyo — OpenRouter, Together, lokal na server; ilalagay mo ang base URL).
+- **Hindi na Kimi lang** — piliin ang provider sa panel: **Kimi**, **Alibaba Token Plan**,
+  **Alibaba Qwen** (DashScope), o **Custom** (kahit anong OpenAI-compatible na serbisyo —
+  OpenRouter, Together, lokal na server; ilalagay mo ang base URL).
 - **Bawat provider ay may sariling naka-save na API key** — hindi nababura kapag
   nagpapalipat-lipat ka.
-- **Free-form na model field** na may suggestions per provider (qwen-max, qwen-plus,
-  qwen-turbo, qwen3, qwen-vl-max, atbp.) — pwede ring mag-type ng kahit anong model name.
+- **Free-form na model field** na may suggestions per provider — pwede ring mag-type ng
+  kahit anong model name.
 - Ang model routing ay gumagana pa rin: lumilipat sa "malakas" na model ng provider
-  (Kimi → k3, Qwen → qwen-max) kapag sunod na nag-fail o malaki ang konteksto.
-- Tandaan: ang vision (screenshot/image tools) ay nangangailangan ng vision-capable
-  na model — sa Qwen, piliin ang `qwen-vl-max` kung gagamit ka ng screenshots.
+  kapag sunod na nag-fail o malaki ang konteksto.
 
 ## Anong bago sa v0.3.1 (harness upgrade — parang mga tip sa Reddit)
 
@@ -71,7 +80,7 @@ yan ang dahilan kung bakit extension ito at hindi remote browser.
 2. Buksan ang **Developer mode** (kanang taas)
 3. **Load unpacked** → piliin ang folder na ito (yung may `manifest.json` mismo sa loob)
 4. Pindutin ang icon ng extension para buksan ang side panel
-5. Piliin ang provider (Kimi / Alibaba Qwen / Custom) at ilagay ang API key nito
+5. Piliin ang provider (Kimi / Alibaba Token Plan / Alibaba Qwen / Custom) at ilagay ang API key nito
 
 Naka-`chrome.storage.local` ang mga key — wala sa code, hindi napupunta sa git.
 
@@ -106,10 +115,10 @@ ng ibang session tab, babalik ang tanong kapag bumalik ka sa tab na iyon.
 
 | File | Laman |
 |---|---|
-| `background.js` | agent loop, multi-provider API (streaming), permission gate, scope group setup, autopilot, alarms, model routing, auto-compaction |
+| `background.js` | agent loop, multi-provider API (streaming), permission gate, scope group, autopilot, alarms, model routing, auto-compaction, auditor |
 | `tools.js` | tool schema + dispatch, working tab logic, waitForLoad, generate_image, shortcuts, schedules |
 | `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type, console hook, paste, recorder, page signature) |
-| `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export, provider/model settings |
+| `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export, provider/model/auditor settings |
 | `memory.js` | natutunan niya per-site at tungkol sa iyo |
 | `history.js` | pag-aayos ng mga naulilang tool call |
 | `offscreen.*` | pagkuha ng tunog ng tab para sa Groq Whisper |
