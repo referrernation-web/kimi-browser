@@ -2,3 +2,1189 @@ import { repairHistory } from './history.js';
 
 const $ = (id) => document.getElementById(id);
 const log = $('log');
+
+// ===== SESSIONS =====
+// Bawat session: { id, title, history, transcript, createdAt }.
+// Ang history ay ang hugis-API na mensahe para sa model; ang transcript ay ang
+// nakikita ng tao. Parehong nakatira DITO sa panel — ang background ay stateless,
+// kaya kahit mamatay ang service worker, buo ang lahat.
+let sessions = [];
+let activeId = null;
+
+const runsById = new Map();       // runId -> sessionId (para maroute ang events)
+const activeRuns = new Set();     // runId ng mga tumatakbong gawain
+const unread = new Set();         // sessionId na may bagong update habang hindi aktibo
+const pendingPrompts = new Map(); // sessionId -> [{ kind:'question'|'confirm', id, ... }]
+const streams = new Map();        // runId -> { a, t, elA, elT } para sa streaming
+
+const uid = () =>
+  crypto.randomUUID?.() || 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const active = () => sessions.find((s) => s.id === activeId);
+
+// --- save/load ---
+// Ang mga larawan ay hindi isinasave sa storage (10MB lang ang quota) — nananatili
+// lang sila sa memory habang bukas ang panel.
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const stripped = sessions.map((s) => ({
+      ...s,
+      transcript: s.transcript.slice(-300),
+      history: s.history.map(stripImages),
+    }));
+    chrome.storage.local.set({ sessions: stripped, activeSessionId: activeId });
+  }, 300);
+}
+
+function stripImages(m) {
+  if (!Array.isArray(m.content)) return m;
+  return {
+    ...m,
+    content: m.content.map((p) => (p.type === 'image_url' ? { type: 'text', text: '[larawan]' } : p)),
+  };
+}
+
+async function loadSessions() {
+  const d = await chrome.storage.local.get(['sessions', 'activeSessionId']);
+  sessions = d.sessions || [];
+  activeId = d.activeSessionId;
+  if (!sessions.length) {
+    sessions = [{ id: uid(), title: 'Bagong usapan', history: [], transcript: [], createdAt: Date.now() }];
+    activeId = sessions[0].id;
+  }
+  if (!sessions.some((s) => s.id === activeId)) activeId = sessions[0].id;
+}
+
+function newSession() {
+  const s = { id: uid(), title: 'Bagong usapan', history: [], transcript: [], createdAt: Date.now() };
+  sessions.push(s);
+  activeId = s.id;
+  renderTabs();
+  renderLog();
+  save();
+  $('ask').focus();
+}
+
+function closeSession(id) {
+  const i = sessions.findIndex((s) => s.id === id);
+  if (i < 0) return;
+  // Kung may tumatakbo sa session na ito, ipahinto muna bago isara.
+  for (const [, sid] of runsById) if (sid === id) getPort().postMessage({ type: 'stop' });
+  sessions.splice(i, 1);
+  pendingPrompts.delete(id);
+  unread.delete(id);
+  if (!sessions.length) return newSession();
+  if (activeId === id) {
+    activeId = sessions[Math.max(0, i - 1)].id;
+    renderLog();
+  }
+  renderTabs();
+  save();
+}
+
+function setActive(id) {
+  if (activeId === id) return;
+  activeId = id;
+  unread.delete(id);
+  renderTabs();
+  renderLog();
+  save();
+  // I-render ulit ang mga pending na tanong/pahintulot para maisagot ng user.
+  for (const p of pendingPrompts.get(id) || []) {
+    if (p.kind === 'question') addQuestion(p.id, p.question, p.options);
+    else addConfirm(p.id, p.tool, p.args);
+  }
+}
+
+// --- TAB STRIP: pahalang, nai-drag para mag-reorder ---
+function renderTabs() {
+  const strip = $('tabstrip');
+  const running = new Set(runsById.values());
+  strip.replaceChildren(
+    ...sessions.map((s) => {
+      const el = document.createElement('div');
+      el.className = 'tab' + (s.id === activeId ? ' active' : '');
+      el.draggable = true;
+
+      const t = document.createElement('span');
+      t.className = 't';
+      t.textContent = s.title;
+      t.title = s.title;
+      el.append(t);
+
+      if (running.has(s.id)) {
+        const d = document.createElement('span');
+        d.className = 'dot';
+        d.title = 'Tumatakbo ang agent dito';
+        el.append(d);
+      } else if (unread.has(s.id)) {
+        const d = document.createElement('span');
+        d.className = 'unread';
+        d.title = 'May bagong update';
+        el.append(d);
+      }
+
+      const x = document.createElement('button');
+      x.textContent = '×';
+      x.title = 'Isara ang usapang ito';
+      x.onclick = (e) => {
+        e.stopPropagation();
+        closeSession(s.id);
+      };
+      el.append(x);
+
+      el.onclick = () => setActive(s.id);
+
+      // Drag left-right para mag-reorder, tulad ng sa Claude.
+      el.ondragstart = (e) => {
+        e.dataTransfer.setData('text/plain', s.id);
+        e.dataTransfer.effectAllowed = 'move';
+        el.classList.add('dragging');
+      };
+      el.ondragend = () => el.classList.remove('dragging');
+      el.ondragover = (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        el.classList.add('dragover');
+      };
+      el.ondragleave = () => el.classList.remove('dragover');
+      el.ondrop = (e) => {
+        e.preventDefault();
+        el.classList.remove('dragover');
+        const from = e.dataTransfer.getData('text/plain');
+        if (!from || from === s.id) return;
+        const fi = sessions.findIndex((q) => q.id === from);
+        const ti = sessions.findIndex((q) => q.id === s.id);
+        if (fi < 0 || ti < 0) return;
+        sessions.splice(ti, 0, sessions.splice(fi, 1)[0]);
+        renderTabs();
+        save();
+      };
+      return el;
+    })
+  );
+}
+$('tabstrip').onwheel = (e) => {
+  if (!e.deltaY) return;
+  $('tabstrip').scrollLeft += e.deltaY;
+  e.preventDefault();
+};
+$('newtab').onclick = newSession;
+
+// --- LOG RENDERING ---
+function renderLog() {
+  log.replaceChildren();
+  for (const t of tables.values()) t.el = null; // ang lumang nodes ay burado na
+  const s = active();
+  if (!s) return;
+  for (const e of s.transcript) renderEntry(e);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderEntry(e) {
+  if (e.t === 'think') addThinking(e.text);
+  else if (e.t === 'table') addTable(e.title, e.columns, e.rows, true, active());
+  else add(e.t, e.text);
+}
+
+// Itala ang entry sa session (aktibo man o hindi), tapos i-render kung aktibo.
+function emit(sess, entry) {
+  sess.transcript.push(entry);
+  if (sess.transcript.length > 300) sess.transcript.shift();
+  save();
+  if (sess.id === activeId) renderEntry(entry);
+  else {
+    unread.add(sess.id);
+    renderTabs();
+  }
+}
+
+function add(cls, text) {
+  const el = document.createElement('div');
+  el.className = `msg ${cls}`;
+  el.textContent = text;
+  log.append(el);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+// Ang pag-iisip ang pinakakawili-wiling bahagi, kaya makikita agad ang unang pangungusap;
+// nasa loob ng details ang buo para hindi lumamon sa panel.
+function addThinking(text) {
+  const first = (text.match(/^[\s\S]{0,150}?[.!?](\s|$)/) || [text.slice(0, 150)])[0].trim();
+  const d = document.createElement('details');
+  d.className = 'think';
+  const s = document.createElement('summary');
+  s.textContent = first + (text.length > first.length ? ' …' : '');
+  d.append(s, document.createTextNode(text));
+  log.append(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+// --- PORT: namamatay kasama ng service worker, kaya kinakabit ulit kapag kailangan ---
+let port = null;
+function getPort() {
+  if (port) return port;
+  port = chrome.runtime.connect({ name: 'kimi' });
+  port.onMessage.addListener(onMessage);
+  port.onDisconnect.addListener(() => {
+    port = null;
+    if (!activeRuns.size) return; // walang tumatakbo — walang aayusin
+    // Namatay ang background sa gitna ng trabaho. Ayusin ang LAHAT ng session,
+    // hindi lang ang aktibo — baka sa iba tumatakbo.
+    let healedAny = false;
+    for (const s of sessions) healedAny = repairHistory(s.history) || healedAny;
+    activeRuns.clear();
+    runsById.clear();
+    pendingPrompts.clear();
+    save();
+    updateSend();
+    renderTabs();
+    const s = active();
+    if (s)
+      emit(s, {
+        t: 'error',
+        text: `Naputol ang koneksyon${healedAny ? ' (may naayos na naiwang hakbang)' : ''} — magpatuloy ka lang, tandaan pa rin niya ang nagawa na.`,
+      });
+  });
+  return port;
+}
+
+// --- SETTINGS: nabubuhay sa chrome.storage.local, hindi sa code ---
+const HINTS = {
+  adaptive: 'Nagtatanong sa unang beses ng bawat aksyon, tapos tiwala na sa buong gawain.',
+  manual: 'Nagtatanong bago ang bawat aksyon.',
+  auto: 'Kusang kumikilos; nagtatanong pa rin sa hindi na maibabalik.',
+  plan: 'Read-only. Nagbabasa at nagpaplano, hindi kumikilos.',
+  coach: 'Nakikinig sa caption ng tawag at nagmumungkahi ng sagot. Walang ginagalaw.',
+  bypass: 'Walang tanong kahit ano.',
+};
+const showHint = () => ($('hint').textContent = HINTS[$('mode').value]);
+
+let ttsOn = false;
+let soundOn = true;
+
+chrome.storage.local.get(['apiKey', 'model', 'mode', 'tts', 'sound', 'autopilot']).then((d) => {
+  $('key').value = d.apiKey || '';
+  $('model').value = d.model || 'k3';
+  $('mode').value = d.mode || 'adaptive';
+  ttsOn = !!d.tts;
+  soundOn = d.sound !== false;
+  $('tts').classList.toggle('on', ttsOn);
+  $('sound').classList.toggle('on', soundOn);
+  $('pilot').classList.toggle('on', !!d.autopilot);
+  showHint();
+});
+$('key').onchange = () => chrome.storage.local.set({ apiKey: $('key').value.trim() });
+$('model').onchange = () => chrome.storage.local.set({ model: $('model').value });
+$('mode').onchange = () => {
+  chrome.storage.local.set({ mode: $('mode').value });
+  showHint();
+};
+
+// --- MGA TUNOG: Web Audio lang, walang files, walang key ---
+let audioCtx = null;
+function chime(kind) {
+  if (!soundOn) return;
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    const notes =
+      kind === 'done'
+        ? [[660, 0, 0.12], [880, 0.13, 0.18]]
+        : kind === 'ask'
+          ? [[523, 0, 0.13], [523, 0.17, 0.13]]
+          : [[196, 0, 0.28]];
+    for (const [freq, at, dur] of notes) {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      const t0 = audioCtx.currentTime + at;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0);
+      o.stop(t0 + dur + 0.05);
+    }
+  } catch {}
+}
+
+$('sound').onclick = () => {
+  soundOn = !soundOn;
+  $('sound').classList.toggle('on', soundOn);
+  chrome.storage.local.set({ sound: soundOn });
+};
+
+// --- TTS: binabasa nang malakas ang mga sagot ---
+function speak(text, then) {
+  if (!ttsOn || !text) {
+    then?.();
+    return;
+  }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/[*#`_]/g, '').slice(0, 1200));
+  u.lang = navigator.language?.startsWith('tl') ? 'tl-PH' : 'en-US';
+  u.onend = () => then?.();
+  u.onerror = () => then?.();
+  speechSynthesis.speak(u);
+}
+
+function maybeSpeak(text) {
+  speak(text, () => {
+    // Conversation mode: pagkatapos magsalita, makinig ulit — tuloy-tuloy na usapan.
+    if (voiceConvo && !activeRuns.size && !dictateRec) startDictate();
+  });
+}
+
+$('tts').onclick = () => {
+  ttsOn = !ttsOn;
+  $('tts').classList.toggle('on', ttsOn);
+  chrome.storage.local.set({ tts: ttsOn });
+  if (!ttsOn) speechSynthesis.cancel();
+};
+
+// Ang tool call bilang pangungusap, hindi bilang JSON.
+const SAYS = {
+  read_page: () => 'Binabasa ang page',
+  screenshot: () => 'Tumitingin sa screen',
+  generate_image: (a) => `Gumagawa ng larawan: "${String(a.prompt).slice(0, 50)}"`,
+  listen: (a) => `Nakikinig (${a.seconds || 8}s)`,
+  scroll: (a) => `Nag-scroll ${a.direction === 'up' ? 'pataas' : 'pababa'}`,
+  click: (a) => `Pinipindot ang ${a.ref}`,
+  type: (a) => `Isinusulat: "${String(a.text).slice(0, 40)}"`,
+  navigate: (a) => `Pumupunta sa ${hostOf(a.url)}`,
+  new_tab: (a) => `Bagong tab: ${hostOf(a.url)}`,
+  close_tab: () => 'Isinasara ang tab',
+  remember: (a) => `Tinatandaan: ${String(a.note).slice(0, 60)}`,
+  collect: (a) => `Naitala ang ${a.count ?? ''} sa "${a.title}"`.replace('  ', ' '),
+  _compact: (a) => `Nilinis ang konteksto (−${Math.round(a.saved / 1000)}k karakter)`,
+  _capture: () => 'Nakikinig na sa tunog ng tab',
+  list_tabs: () => 'Tinitingnan ang mga tab sa group',
+  switch_tab: () => 'Lumilipat ng working tab',
+  read_console: () => 'Binabasa ang console ng page',
+  paste_large: (a) => `Nagpa-paste ng ${String(a.text || '').length} karakter`,
+  run_shortcut: (a) => `Pinapatakbo ang shortcut na "${a.name}"`,
+  schedule_task: () => 'Nag-iiskedyul ng gawain',
+  _autopilot: (a) => `🛩 Nagpapatuloy (${a.chains}/5): ${String(a.next).slice(0, 60)}`,
+  _escalate: (a) => `Lumipat sa K3 (1M) — ${a.why}`,
+};
+const hostOf = (u) => {
+  try {
+    return new URL(u).hostname.replace(/^www\./, '');
+  } catch {
+    return u;
+  }
+};
+const describe = (name, args) => (SAYS[name] ? SAYS[name](args || {}) : name);
+
+// --- PENDING PROMPTS: para mabuhay ang tanong kahit lumipat ka ng session ---
+function trackPending(sid, p) {
+  const arr = pendingPrompts.get(sid) || [];
+  arr.push(p);
+  pendingPrompts.set(sid, arr);
+}
+function untrackPending(id) {
+  for (const [sid, arr] of pendingPrompts) pendingPrompts.set(sid, arr.filter((p) => p.id !== id));
+}
+
+// Isang pindutan-hilera na sumasagot sa background, tapos pinapalitan ang sarili
+// ng napiling sagot para manatiling mababasa ang usapan.
+function addChoice(id, titleText, detailText, choices, echo) {
+  const box = document.createElement('div');
+  box.className = detailText === null ? 'question' : 'confirm';
+
+  const title = document.createElement('b');
+  title.textContent = titleText;
+  box.append(title);
+
+  if (detailText !== null) {
+    const d = document.createElement('div');
+    d.className = 'tool';
+    d.textContent = detailText;
+    box.append(d);
+  }
+
+  const row = document.createElement('div');
+  row.className = 'opts';
+  row.style.marginTop = '6px';
+
+  const answer = (value) => {
+    untrackPending(id);
+    getPort().postMessage({ type: 'reply', id, value });
+    box.replaceChildren(
+      Object.assign(document.createElement('div'), { className: 'tool', textContent: echo(value) })
+    );
+  };
+
+  for (const [label, value] of choices) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.onclick = () => answer(value);
+    row.append(b);
+  }
+  box.append(row);
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+  return answer;
+}
+
+function addConfirm(id, tool, args) {
+  addChoice(
+    id,
+    `Papayagan ang ${tool}?`,
+    JSON.stringify(args),
+    [
+      ['Payagan', true],
+      ['Huwag', false],
+    ],
+    (v) => `${tool} — ${v ? 'pinayagan' : 'tinanggihan'}`
+  );
+}
+
+function addQuestion(id, question, options) {
+  const answer = addChoice(
+    id,
+    question,
+    null,
+    options.map((o) => [o, o]).concat([['Iba pa…', '__other__']]),
+    (v) => `sagot: ${v}`
+  );
+  // "Iba pa" ay nagbubukas ng prompt sa halip na magpadala ng sentinel.
+  log.lastChild.querySelectorAll('button').forEach((b) => {
+    if (b.textContent !== 'Iba pa…') return;
+    b.onclick = () => {
+      const t = window.prompt(question);
+      if (t) answer(t);
+    };
+  });
+}
+
+// --- MGA TABLE: ang paulit-ulit na `collect` na may parehong pamagat ay nagdadagdag
+// ng row sa halip na gumawa ng bagong table. Per-session ang mga ito.
+const tables = new Map(); // key: `${sessId}::${title}`
+
+function addTable(title, columns, rows, replaying, sess = active()) {
+  const key = `${sess.id}::${title}`;
+  let t = tables.get(key);
+  if (t) {
+    t.rows.push(...rows);
+  } else {
+    t = { title, columns, rows: [...rows], sort: null, el: null };
+    tables.set(key, t);
+  }
+  if (!replaying) {
+    sess.transcript = sess.transcript.filter((e) => !(e.t === 'table' && e.title === title));
+    sess.transcript.push({ t: 'table', title, columns: t.columns, rows: t.rows });
+    save();
+    if (sess.id !== activeId) {
+      unread.add(sess.id);
+      renderTabs();
+      return;
+    }
+  }
+  renderTable(t);
+}
+
+function renderTable(t) {
+  const box = document.createElement('div');
+  box.className = 'tablebox';
+
+  const head = document.createElement('div');
+  head.className = 'row';
+  const h = document.createElement('b');
+  h.style.flex = '1';
+  h.textContent = `${t.title} (${t.rows.length})`;
+  const csv = Object.assign(document.createElement('button'), { textContent: 'CSV' });
+  const cp = Object.assign(document.createElement('button'), { textContent: 'Kopyahin' });
+  csv.onclick = () => download(t);
+  cp.onclick = () => copyTable(t, cp);
+  head.append(h, csv, cp);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'tablewrap';
+  const table = document.createElement('table');
+
+  const tr = document.createElement('tr');
+  t.columns.forEach((c, i) => {
+    const th = document.createElement('th');
+    th.textContent = c + (t.sort?.i === i ? (t.sort.dir > 0 ? ' ▲' : ' ▼') : '');
+    th.onclick = () => {
+      const dir = t.sort?.i === i && t.sort.dir > 0 ? -1 : 1;
+      t.sort = { i, dir };
+      t.rows.sort((a, b) => cmp(a[i], b[i]) * dir);
+      renderTable(t);
+    };
+    tr.append(th);
+  });
+  table.append(tr);
+
+  for (const r of t.rows) {
+    const row = document.createElement('tr');
+    for (const cell of r) {
+      const td = document.createElement('td');
+      const s = String(cell ?? '');
+      if (/^https?:\/\//.test(s)) {
+        const a = document.createElement('a');
+        a.href = s;
+        a.target = '_blank';
+        a.textContent = 'buksan';
+        td.append(a);
+      } else td.textContent = s;
+      row.append(td);
+    }
+    table.append(row);
+  }
+
+  wrap.append(table);
+  box.append(head, wrap);
+  if (t.el) t.el.replaceWith(box);
+  else log.append(box);
+  t.el = box;
+  log.scrollTop = log.scrollHeight;
+}
+
+// Ang "₱15,500" ay dapat mag-sort bilang 15500, hindi bilang teksto.
+function cmp(a, b) {
+  const na = parseFloat(String(a).replace(/[^\d.-]/g, ''));
+  const nb = parseFloat(String(b).replace(/[^\d.-]/g, ''));
+  if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+  return String(a).localeCompare(String(b));
+}
+
+const toCSV = (t) =>
+  [t.columns, ...t.rows]
+    .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\r\n');
+
+function download(t) {
+  const url = URL.createObjectURL(new Blob(['﻿' + toCSV(t)], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = t.title.replace(/[^\w-]+/g, '-').toLowerCase() + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function copyTable(t, btn) {
+  // Tab-separated: dumidikit ito nang maayos sa Excel, Sheets, at Messenger.
+  const text = [t.columns, ...t.rows].map((r) => r.join('\t')).join('\n');
+  await navigator.clipboard.writeText(text);
+  btn.textContent = 'Nakopya ✓';
+  setTimeout(() => (btn.textContent = 'Kopyahin'), 1500);
+}
+
+// --- STREAMING: live na bubble habang nagta-type ang model ---
+function liveDelta(sess, runId, kind, text) {
+  let st = streams.get(runId);
+  if (!st) {
+    st = { a: '', t: '', elA: null, elT: null };
+    streams.set(runId, st);
+  }
+  const live = sess.id === activeId;
+  if (kind === 'a') {
+    st.a += text;
+    if (live) {
+      if (!st.elA) {
+        st.elA = document.createElement('div');
+        st.elA.className = 'msg assistant live';
+        log.append(st.elA);
+      }
+      st.elA.textContent = st.a;
+      log.scrollTop = log.scrollHeight;
+    }
+  } else {
+    st.t += text;
+    if (live) {
+      if (!st.elT) {
+        st.elT = document.createElement('details');
+        st.elT.className = 'think live';
+        const s = document.createElement('summary');
+        s.textContent = 'Nag-iisip…';
+        st.elT.append(s, document.createTextNode(''));
+        log.append(st.elT);
+      }
+      st.elT.childNodes[1].textContent = st.t;
+      log.scrollTop = log.scrollHeight;
+    }
+  }
+}
+
+function streamEnd(sess, runId) {
+  const st = streams.get(runId);
+  if (!st) return;
+  streams.delete(runId);
+  // Alisin ang live na bubble — papalitan ng pangmatagalang entry na naitatala.
+  st.elA?.remove();
+  st.elT?.remove();
+  if (st.t) emit(sess, { t: 'think', text: st.t });
+  if (st.a) {
+    emit(sess, { t: 'assistant', text: st.a });
+    maybeSpeak(st.a);
+  }
+}
+
+// --- MGA MENSAHE MULA SA BACKGROUND: nire-route sa tamang session ---
+function onMessage(m) {
+  const sid = m.runId ? runsById.get(m.runId) : activeId;
+  const sess = sessions.find((s) => s.id === sid) || active();
+  if (!sess) return;
+  const live = sess.id === activeId;
+
+  switch (m.type) {
+    case 'assistant_delta':
+      return liveDelta(sess, m.runId, 'a', m.text);
+    case 'thinking_delta':
+      return liveDelta(sess, m.runId, 't', m.text);
+    case 'stream_end':
+      return streamEnd(sess, m.runId);
+    case 'thinking':
+      return emit(sess, { t: 'think', text: m.text });
+    case 'assistant':
+      emit(sess, { t: 'assistant', text: m.text });
+      return maybeSpeak(m.text);
+    case 'tool':
+      return emit(sess, { t: 'tool', text: describe(m.name, m.args) });
+    case 'tool_result':
+      // Ang tagumpay ay tahimik — ang bawat "ok" ay ingay lang. Ang pagkabigo lang ang nagsasalita.
+      if (!m.result?.error) return;
+      emit(sess, { t: 'error', text: `Hindi natuloy ang ${describe(m.name, m.args).toLowerCase()}: ${m.result.error}` });
+      return chime('error');
+    case 'confirm':
+      trackPending(sess.id, { kind: 'confirm', id: m.id, tool: m.tool, args: m.args });
+      if (live) addConfirm(m.id, m.tool, m.args);
+      else {
+        unread.add(sess.id);
+        renderTabs();
+      }
+      voiceConvo = false; // kailangan ng desisyon mo — huminto muna ang usapang boses
+      return chime('ask');
+    case 'question':
+      trackPending(sess.id, { kind: 'question', id: m.id, question: m.question, options: m.options });
+      if (live) addQuestion(m.id, m.question, m.options);
+      else {
+        unread.add(sess.id);
+        renderTabs();
+      }
+      voiceConvo = false;
+      return chime('ask');
+    case 'error':
+      emit(sess, { t: 'error', text: m.text });
+      return chime('error');
+    case 'heard':
+      return emit(sess, { t: 'tool', text: `🔊 ${String(m.text).slice(0, 500)}` });
+    case 'capture-off':
+      $('tap').classList.remove('on');
+      return;
+    case 'shot': {
+      // Ang mga larawan ay live lang — hindi itinatala para hindi mapuno ang storage.
+      if (!live) {
+        unread.add(sess.id);
+        return renderTabs();
+      }
+      const el = add('tool', 'Tumingin sa screen');
+      const im = document.createElement('img');
+      im.src = m.image;
+      el.append(im);
+      log.scrollTop = log.scrollHeight;
+      return;
+    }
+    case 'table':
+      return addTable(m.title, m.columns, m.rows, false, sess);
+    case 'msg':
+      sess.history.push(m.message);
+      return save();
+    case 'recorded':
+      return finishRecording(m.steps);
+    case 'done':
+      activeRuns.delete(m.runId);
+      runsById.delete(m.runId);
+      updateSend();
+      renderTabs();
+      return chime('done');
+  }
+}
+
+function updateSend() {
+  const busy = activeRuns.size > 0;
+  $('send').disabled = busy;
+  $('send').textContent = busy ? '…' : '↑';
+  $('statuslight').classList.toggle('on', busy); // ang violet na ilaw
+}
+
+// --- MGA LARAWANG IDINIKIT ---
+// Ang hilaw na screenshot ay 2-4 MB bilang base64. Pinapaliit natin bago ipadala:
+// 1280px ang pinakamalaki at JPEG 0.8 — nababasa pa rin ang teksto sa screenshot,
+// pero ~15x na mas maliit. Kung hindi, isang paste ay kakain ng kalahating konteksto.
+const MAX_SIDE = 1280;
+let attachments = [];
+
+function shrink(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('Hindi mabuksan ang larawan.'));
+    img.onload = () => {
+      const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      resolve(c.toDataURL('image/jpeg', 0.8));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function drawThumbs() {
+  $('thumbs').replaceChildren(
+    ...attachments.map((url, i) => {
+      const d = document.createElement('div');
+      d.className = 'thumb';
+      const im = document.createElement('img');
+      im.src = url;
+      const x = document.createElement('button');
+      x.textContent = '×';
+      x.title = 'Alisin';
+      x.onclick = () => {
+        attachments.splice(i, 1);
+        drawThumbs();
+      };
+      d.append(im, x);
+      return d;
+    })
+  );
+}
+
+async function attach(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) continue;
+    try {
+      attachments.push(await shrink(f));
+    } catch (e) {
+      const s = active();
+      if (s) emit(s, { t: 'error', text: e.message });
+    }
+  }
+  drawThumbs();
+}
+
+$('ask').addEventListener('paste', (e) => {
+  const files = [...e.clipboardData.items].filter((i) => i.kind === 'file').map((i) => i.getAsFile());
+  if (!files.length) return;
+  e.preventDefault(); // kung hindi, idinidikit ng Chrome ang pangalan ng file bilang teksto
+  attach(files);
+});
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  attach(e.dataTransfer.files);
+});
+
+// --- SUBMIT ---
+let voiceConvo = false; // tuloy-tuloy na usapang boses: salita → sagot → salita
+
+function submit(viaVoice = false) {
+  const s = active();
+  if (!s) return;
+  const text = $('ask').value.trim();
+  if (!text && !attachments.length) return;
+
+  if (activeRuns.size) {
+    emit(s, { t: 'tool', text: 'May tumatakbo pang gawain — hintayin munang matapos bago magpadala ulit.' });
+    $('ask').value = '';
+    return;
+  }
+
+  // Ang pinakamadalas na paraan ng pagkasira: nagtanong siya, hindi ka pumindot ng sagot,
+  // nagtype ka na lang. Ang naiwang tool_call na walang sagot ay tinatanggihan ng API
+  // magpakailanman. Nililinis natin ito sa BAWAT pagpapadala.
+  if (repairHistory(s.history, 'Hindi ito sinagot ng user; nagpadala siya ng bagong mensahe sa ibaba.')) {
+    pendingPrompts.set(s.id, []);
+    log.querySelectorAll('.question button, .confirm button').forEach((b) => (b.disabled = true));
+  }
+
+  // Ang unang mensahe ang nagiging pamagat ng tab.
+  if (s.title === 'Bagong usapan' && text) {
+    s.title = text.slice(0, 26);
+    renderTabs();
+  }
+
+  emit(s, { t: 'user', text });
+  if (attachments.length) {
+    const el = log.lastChild;
+    for (const url of attachments) {
+      const im = document.createElement('img');
+      im.src = url;
+      el?.append(im);
+    }
+  }
+
+  s.history.push({
+    role: 'user',
+    content: attachments.length
+      ? [
+          { type: 'text', text: text || 'Ano ang nasa larawang ito?' },
+          ...attachments.map((url) => ({ type: 'image_url', image_url: { url } })),
+        ]
+      : text,
+  });
+
+  attachments = [];
+  drawThumbs();
+  $('ask').value = '';
+  voiceConvo = viaVoice && ttsOn;
+
+  const runId = uid();
+  runsById.set(runId, s.id);
+  activeRuns.add(runId);
+  updateSend();
+  renderTabs();
+  save();
+
+  getPort().postMessage({
+    type: 'ask',
+    history: s.history,
+    runId,
+    sessionId: s.id,
+    title: s.title,
+  });
+}
+
+// --- VOICE COMMAND: sabihin ang utos, hindi na kailangang mag-type ---
+// Sa normal na mode: nagta-type sa box ang sinasabi mo, at awtomatikong ipinapadala
+// pagkatapos ng maikling katahimikan. Sa COACH mode: pakikinig ito para sa listen tool.
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let dictateRec = null;
+let ambientRec = null;
+let dictateBase = '';
+let silenceTimer = null;
+
+function toggleMic() {
+  if (dictateRec) {
+    dictateRec.__off = true;
+    dictateRec.stop();
+    return;
+  }
+  if (ambientRec) {
+    ambientRec.__off = true;
+    ambientRec.stop();
+    return;
+  }
+  if ($('mode').value === 'coach') startAmbientMic();
+  else startDictate();
+}
+
+function startDictate() {
+  const s = active();
+  if (!s) return;
+  if (!SR) {
+    emit(s, { t: 'error', text: 'Walang Web Speech API ang browser na ito.' });
+    return;
+  }
+
+  const rec = new SR();
+  dictateRec = rec;
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.lang = navigator.language?.startsWith('tl') ? 'tl-PH' : 'en-US';
+  dictateBase = $('ask').value ? $('ask').value.trim() + ' ' : '';
+
+  rec.onresult = (e) => {
+    let interim = '';
+    let finals = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finals += e.results[i][0].transcript + ' ';
+      else interim += e.results[i][0].transcript;
+    }
+    if (finals) dictateBase += finals;
+    $('ask').value = dictateBase + interim;
+    // Auto-send pagkatapos ng maikling katahimikan sa dulo ng pangungusap.
+    clearTimeout(silenceTimer);
+    if (finals && !interim) {
+      silenceTimer = setTimeout(() => {
+        if (dictateRec) {
+          dictateRec.__off = true;
+          dictateRec.stop();
+        }
+        submit(true);
+      }, 1600);
+    }
+  };
+
+  const FATAL = new Set(['not-allowed', 'service-not-allowed', 'audio-capture']);
+  rec.onerror = (e) => {
+    if (e.error === 'no-speech') return;
+    if (!FATAL.has(e.error)) {
+      emit(s, { t: 'error', text: `Mikropono: ${e.error}` });
+      return;
+    }
+    rec.__off = true;
+    emit(s, { t: 'error', text: 'Walang pahintulot sa mikropono. Bubuksan ko ang page na hihingi nito.' });
+    chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+  };
+
+  rec.onend = () => {
+    if (rec.__off) {
+      dictateRec = null;
+      $('mic').classList.remove('on');
+      return;
+    }
+    try {
+      rec.start();
+    } catch {}
+  };
+
+  try {
+    rec.start();
+    $('mic').classList.add('on');
+  } catch (e) {
+    dictateRec = null;
+    emit(s, { t: 'error', text: `Hindi mabuksan ang mikropono: ${e.message}` });
+  }
+}
+
+// Ang lumang behavior ng 🎤, para sa coach mode: pakikinig sa kwarto at ipinapadala
+// sa background para sa susunod na `listen` ng agent. Hindi nagre-record: teksto lang.
+function startAmbientMic() {
+  const s = active();
+  if (!s) return;
+  if (!SR) {
+    emit(s, { t: 'error', text: 'Walang Web Speech API ang browser na ito.' });
+    return;
+  }
+
+  const rec = new SR();
+  ambientRec = rec;
+  rec.continuous = true;
+  rec.interimResults = false;
+  rec.lang = navigator.language?.startsWith('tl') ? 'tl-PH' : 'en-US';
+
+  rec.onresult = (e) => {
+    let text = '';
+    for (let i = e.resultIndex; i < e.results.length; i++)
+      if (e.results[i].isFinal) text += e.results[i][0].transcript + ' ';
+    text = text.trim();
+    if (!text) return;
+    emit(s, { t: 'tool', text: `🎤 ${text.slice(0, 300)}` });
+    getPort().postMessage({ type: 'mic', text });
+  };
+
+  const FATAL = new Set(['not-allowed', 'service-not-allowed', 'audio-capture']);
+  rec.onerror = (e) => {
+    if (e.error === 'no-speech') return;
+    if (!FATAL.has(e.error)) {
+      emit(s, { t: 'error', text: `Mikropono: ${e.error}` });
+      return;
+    }
+    rec.__off = true;
+    emit(s, { t: 'error', text: 'Walang pahintulot sa mikropono. Bubuksan ko ang page na hihingi nito.' });
+    chrome.tabs.create({ url: chrome.runtime.getURL('mic-permission.html') });
+  };
+
+  rec.onend = () => {
+    if (rec.__off) {
+      ambientRec = null;
+      $('mic').classList.remove('on');
+      emit(s, { t: 'tool', text: '🎤 tumigil' });
+      return;
+    }
+    try {
+      rec.start();
+    } catch {}
+  };
+
+  try {
+    rec.start();
+    $('mic').classList.add('on');
+    emit(s, { t: 'tool', text: '🎤 nakikinig — ilagay sa speaker ang tawag para marinig ang kabila' });
+  } catch (e) {
+    ambientRec = null;
+    emit(s, { t: 'error', text: `Hindi mabuksan ang mikropono: ${e.message}` });
+  }
+}
+
+$('mic').onclick = toggleMic;
+
+// --- EXPORT: i-download ang usapan bilang Markdown ---
+$('export').onclick = () => {
+  const s = active();
+  if (!s || !s.transcript.length) return;
+  const lines = [`# ${s.title}`, '', `_${new Date(s.createdAt).toLocaleString()}_`, ''];
+  for (const e of s.transcript) {
+    if (e.t === 'user') lines.push('## Ikaw', '', e.text, '');
+    else if (e.t === 'assistant') lines.push('## Kimi K3', '', e.text, '');
+    else if (e.t === 'tool') lines.push(`> ${e.text}`, '');
+    else if (e.t === 'error') lines.push(`> ⚠ ${e.text}`, '');
+    else if (e.t === 'table') {
+      lines.push(
+        `### ${e.title}`,
+        '',
+        '| ' + e.columns.join(' | ') + ' |',
+        '| ' + e.columns.map(() => '---').join(' | ') + ' |',
+        ...e.rows.map((r) => '| ' + r.map((c) => String(c ?? '').replace(/\|/g, '\\|')).join(' | ') + ' |'),
+        ''
+      );
+    }
+    // Ang 'think' ay hindi naisasama — panloob na pag-iisip iyon.
+  }
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = s.title.replace(/[^\w-]+/g, '-').toLowerCase().slice(0, 50) + '.md';
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// --- TUNOG NG TAB → Groq Whisper ---
+$('tap').onclick = async () => {
+  const s = active();
+  if ($('tap').classList.contains('on')) {
+    getPort().postMessage({ type: 'capture', on: false });
+    $('tap').classList.remove('on');
+    if (s) emit(s, { t: 'tool', text: '🔊 tumigil' });
+    return;
+  }
+  const { groqKey } = await chrome.storage.local.get('groqKey');
+  if (!groqKey) {
+    const k = window.prompt('Groq API key (gsk_...) — nasa chrome.storage lang ito, hindi sa code:');
+    if (!k) return;
+    await chrome.storage.local.set({ groqKey: k.trim() });
+  }
+  getPort().postMessage({ type: 'capture', on: true });
+  $('tap').classList.add('on');
+  if (s) emit(s, { t: 'tool', text: '🔊 kinukuha ang tunog ng tab — maririnig mo pa rin ito' });
+};
+
+// --- ANG NATUTUNAN NIYA: nakikita at nabubura ---
+$('mem').onclick = async () => {
+  const { load, forget } = await import('./memory.js');
+  const mem = await load();
+  const rows = [
+    ...mem.user.map((s, i) => ['user', i, '', s]),
+    ...Object.entries(mem.sites).flatMap(([d, xs]) => xs.map((s, i) => ['site', i, d, s])),
+  ];
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  const b = document.createElement('b');
+  b.textContent = rows.length ? `Natutunan niya (${rows.length})` : 'Wala pa siyang natutunan.';
+  box.append(b);
+  for (const [scope, i, domain, text] of rows) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginTop = '4px';
+    const t = document.createElement('span');
+    t.className = 'dim';
+    t.style.flex = '1';
+    t.textContent = (domain ? `${domain}: ` : 'ikaw: ') + text;
+    const x = document.createElement('button');
+    x.textContent = '×';
+    x.onclick = async () => {
+      await forget(scope, i, domain);
+      row.remove();
+    };
+    row.append(t, x);
+    box.append(row);
+  }
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+};
+
+// --- AUTOPILOT: kusang nagpapatuloy sa susunod na hakbang ---
+$('pilot').onclick = () => {
+  const on = !$('pilot').classList.contains('on');
+  $('pilot').classList.toggle('on', on);
+  chrome.storage.local.set({ autopilot: on });
+  const s = active();
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: on
+        ? '🛩 Autopilot ON — pagkatapos ng gawain, kusang magpapatuloy sa susunod na hakbang (max 5, may permission gates pa rin)'
+        : '🛩 Autopilot OFF',
+    });
+};
+
+// --- RECORD & REPLAY ---
+let recording = false;
+
+$('rec').onclick = () => {
+  const s = active();
+  recording = !recording;
+  $('rec').classList.toggle('on', recording);
+  getPort().postMessage({ type: 'record', on: recording });
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: recording
+        ? '⏺ Nagre-record — gawin mo ang mga pindot sa working tab, tapos pindutin ulit ito para ihinto'
+        : '⏺ Huminto ang recording…',
+    });
+};
+
+async function finishRecording(steps) {
+  recording = false;
+  $('rec').classList.remove('on');
+  const s = active();
+  const name = window.prompt(`Pangalan ng shortcut na ito (${steps.length} hakbang):`);
+  if (!name) {
+    if (s) emit(s, { t: 'tool', text: 'Hindi na-save ang recording.' });
+    return;
+  }
+  const { shortcuts = {} } = await chrome.storage.local.get('shortcuts');
+  shortcuts[name] = { steps, createdAt: Date.now() };
+  await chrome.storage.local.set({ shortcuts });
+  if (s)
+    emit(s, {
+      t: 'tool',
+      text: `⏺ Naka-save ang shortcut na "${name}" (${steps.length} hakbang) — sabihin mo lang: "i-run ang ${name}"`,
+    });
+}
+
+// --- SCHEDULED TASKS ---
+$('sched').onclick = async () => {
+  const { schedules = [] } = await chrome.storage.local.get('schedules');
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  const b = document.createElement('b');
+  b.textContent = schedules.length ? `Naka-iskedyul (${schedules.length})` : 'Walang naka-iskedyul na gawain.';
+  box.append(b);
+  for (const t of schedules) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginTop = '4px';
+    const span = document.createElement('span');
+    span.className = 'dim';
+    span.style.flex = '1';
+    span.textContent = `${t.every ? `kada ${t.every} min` : 'minsan'}: ${t.instruction.slice(0, 80)}`;
+    const x = document.createElement('button');
+    x.textContent = '×';
+    x.onclick = async () => {
+      await chrome.alarms.clear(t.id);
+      const { schedules: cur = [] } = await chrome.storage.local.get('schedules');
+      await chrome.storage.local.set({ schedules: cur.filter((q) => q.id !== t.id) });
+      row.remove();
+    };
+    row.append(span, x);
+    box.append(row);
+  }
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+};
+
+$('send').onclick = () => submit(false);
+$('ask').onkeydown = (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    submit(false);
+  }
+};
+
+// --- BOOT ---
+(async () => {
+  await loadSessions();
+  renderTabs();
+  renderLog();
+  updateSend();
+})();
