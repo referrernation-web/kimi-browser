@@ -1,4 +1,4 @@
-import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, setScope, SCHEMA as SCHEMA_ALL } from './tools.js';
+import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
 import { promptFor } from './memory.js';
 
 const API = 'https://api.kimi.com/coding/v1/chat/completions';
@@ -15,9 +15,13 @@ ka ng Chrome mismo. Kapag kailangan mo ng bagong tab, gumamit ng new_tab at awto
 itong papasok sa group mo.
 
 Paraan ng pagtatrabaho:
-- Tumawag ng read_page BAGO ang unang click o type, at MULI pagkatapos ng bawat click,
-  navigate, o anumang bagay na nagpabago ng page. Nawawalan ng bisa ang mga ref pagkagalaw.
-- Isang hakbang sa bawat pagkakataon. Tignan ang resulta bago magpatuloy.
+- Tumawag ng read_page BAGO ang unang click o type. Pagkatapos niyan, basahin mo MULI
+  lang ang page kapag NAGBAGO ito nang makabuluhan: bagong URL, bagong listing, o
+  modal na bumukas. Kapag magkakasunod na click sa parehong page (hal. pagpili sa
+  filter), hindi na kailangan ng read sa bawat isa — tignan mo lang ang resulta ng
+  click. Nawawalan ng bisa ang mga ref kapag NAGBAGO ang page.
+- Isang hakbang sa bawat pagkakataon, pero huwag magsayang ng read sa bagay na
+  alam mo na. Ang bilis ay nagmumula sa kaunting tawag, hindi sa mabilis na tawag.
 - Kapag hindi mo makita ang hinahanap mo, mag-scroll o basahin ulit — huwag manghula ng ref.
 
 PAANO KA MAGSALITA — ito ang pinakamadalas mong pagkukulang, basahin mong mabuti:
@@ -156,7 +160,7 @@ mula sa caption mismo, at magmungkahi batay doon.`;
 
 async function getSettings() {
   const d = await chrome.storage.local.get(['apiKey', 'model', 'mode']);
-  return { apiKey: d.apiKey || '', model: d.model || 'k3', mode: d.mode || 'manual' };
+  return { apiKey: d.apiKey || '', model: d.model || 'k3', mode: d.mode || 'adaptive' };
 }
 
 chrome.action.onClicked.addListener((tab) =>
@@ -441,6 +445,7 @@ chrome.runtime.onConnect.addListener((port) => {
     // I-setup ang scope group BAGO ang lahat — ang kasalukuyang tab ay papasok sa
     // purple group ng session na ito, at doon lang kikilos ang agent.
     await ensureScope(msg.sessionId, msg.title);
+    resetApprovals(); // ang Adaptive mode ay nagsisimula sa wala sa bawat gawain
 
     // Ang panel ang nagpapadala ng buong kasaysayan, kaya kahit namatay ang
     // service worker, buo pa rin ang usapan.
@@ -534,7 +539,10 @@ chrome.runtime.onConnect.addListener((port) => {
 
         const calls = reply.tool_calls || [];
         if (!calls.length) {
-          await reflect(step);
+          // Hindi hinihintay ang reflect — ang pagkatuto ay hindi dapat magpabagal
+          // ng "tapos na". Kung mapatay man ang service worker bago ito matapos,
+          // walang nawawalang trabaho — memory lang ng susunod na gawain.
+          reflect(step);
           return; // tapos na
         }
 
@@ -574,6 +582,7 @@ chrome.runtime.onConnect.addListener((port) => {
             if (needsApproval(mode, name) && !(await prompt({ type: 'confirm', tool: name, args }))) {
               result = { error: 'Tinanggihan ng user ang hakbang na ito.' };
             } else {
+              markApproved(name); // sa Adaptive: isang pahintulot, tiwala na sa buong gawain
               try {
                 result = await runTool(name, args);
                 // Ang mikropono ay nakikinig sa kwarto, hindi sa tab — kaya dito nito
