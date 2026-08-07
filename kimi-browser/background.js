@@ -1,4 +1,4 @@
-import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, SCHEMA as SCHEMA_ALL } from './tools.js';
+import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, setScope, SCHEMA as SCHEMA_ALL } from './tools.js';
 import { promptFor } from './memory.js';
 
 const API = 'https://api.kimi.com/coding/v1/chat/completions';
@@ -8,6 +8,11 @@ const SYSTEM = `Ikaw ay Kimi K3, isang browser agent na nakaupo sa totoong Chrom
 
 Mahalaga: nakikita mo ang mga naka-login na session ng user. Tratuhin mo ang bawat page
 bilang tunay at buhay — ang mga pindot mo ay may totoong bunga.
+
+MAY SARILI KANG SCOPE. Kontrolado mo LANG ang purple na tab group na "K3". Ang ibang
+tabs ng user ay hindi mo makikita, malilipat, o masasara — kahit subukan mo, hahadlangan
+ka ng Chrome mismo. Kapag kailangan mo ng bagong tab, gumamit ng new_tab at awtomatiko
+itong papasok sa group mo.
 
 Paraan ng pagtatrabaho:
 - Tumawag ng read_page BAGO ang unang click o type, at MULI pagkatapos ng bawat click,
@@ -164,7 +169,6 @@ chrome.action.onClicked.addListener((tab) =>
 const heard = [];
 export const drainHeard = () => heard.splice(0).join(' ');
 
-let capturing = false;
 let panelPort = null; // para makausap ang panel mula sa labas ng port closure
 
 // Ang offscreen ay nagpapadala sa runtime, hindi sa port. Dito natin sinasalo.
@@ -175,7 +179,6 @@ chrome.runtime.onMessage.addListener((m) => {
     if (heard.length > 200) heard.shift();
     panelPort?.postMessage({ type: 'heard', text: m.text });
   } else if (m.type === 'capture-error') {
-    capturing = false;
     panelPort?.postMessage({ type: 'error', text: m.text });
     panelPort?.postMessage({ type: 'capture-off' });
   } else if (m.type === 'capture-started') {
@@ -214,7 +217,6 @@ async function startCapture(send) {
       apiKey: groqKey,
       language: groqLang || '',
     });
-    capturing = true;
   } catch (e) {
     send({
       type: 'error',
@@ -224,9 +226,121 @@ async function startCapture(send) {
 }
 
 async function stopCapture() {
-  capturing = false;
   chrome.runtime.sendMessage({ target: 'offscreen', type: 'stop-capture' });
   if (await chrome.offscreen.hasDocument()) await chrome.offscreen.closeDocument();
+}
+
+// --- SCOPE: isang purple tab group bawat session ---
+// Sa pagsisimula ng run, ang kasalukuyang tab ay ina-adopt sa group ng session na iyon.
+// Mula doon, lahat ng new_tab ay papasok din sa group — at ang lahat ng tool ay sa
+// loob lang ng group kikilos. Ang mga tab ng user ay hindi na aabot.
+async function ensureScope(sessionId, title) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab || /^(chrome|edge|about|chrome-extension):/.test(tab.url || '')) return;
+
+    const store = await chrome.storage.local.get('tabGroups');
+    const groups = store.tabGroups || {};
+    let gid = groups[sessionId];
+
+    if (gid != null) {
+      try {
+        await chrome.tabGroups.get(gid);
+      } catch {
+        gid = null; // isinara ng user ang group — gagawa ng bago
+        delete groups[sessionId];
+      }
+    }
+
+    if (gid == null) {
+      gid = await chrome.tabs.group({ tabIds: [tab.id] });
+      await chrome.tabGroups.update(gid, {
+        title: `K3 · ${(title || 'usapan').slice(0, 20)}`,
+        color: 'purple',
+      });
+      groups[sessionId] = gid;
+      await chrome.storage.local.set({ tabGroups: groups });
+    } else if (tab.groupId !== gid) {
+      await chrome.tabs.group({ tabIds: [tab.id], groupId: gid });
+    }
+
+    setScope(gid, tab.id);
+  } catch {} // ang scope ay hindi dapat magpahinto ng run
+}
+
+// --- STREAMING: binabasa ang SSE habang dumadating, hindi hintay nang buo ---
+// Ibinabalik ang buong assembled reply (para sa kasaysayan) habang naipapadala na
+// ang mga delta sa panel para sa live na pagpapakita.
+async function callModel({ apiKey, model, messages, tools, signal, onDelta }) {
+  const res = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages, tools, max_tokens: 8192, stream: true }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    return { error: `API ${res.status}: ${body.slice(0, 400)}` };
+  }
+  // Kung walang stream support, bumalik sa dati.
+  if (!res.body) {
+    const reply = (await res.json()).choices?.[0]?.message;
+    return { reply, streamed: false };
+  }
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let sawDelta = false;
+  const reply = { role: 'assistant', content: '' };
+  const toolCalls = [];
+  let reasoning = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') continue;
+
+      let chunk;
+      try {
+        chunk = JSON.parse(data);
+      } catch {
+        continue; // kalahating linya o keep-alive — laktawan
+      }
+
+      const delta = chunk.choices?.[0]?.delta || {};
+      if (delta.reasoning_content) {
+        reasoning += delta.reasoning_content;
+        sawDelta = true;
+        onDelta?.('thinking_delta', delta.reasoning_content);
+      }
+      if (delta.content) {
+        reply.content += delta.content;
+        sawDelta = true;
+        onDelta?.('assistant_delta', delta.content);
+      }
+      for (const tc of delta.tool_calls || []) {
+        const i = tc.index ?? 0;
+        const t = (toolCalls[i] ||= { id: '', type: 'function', function: { name: '', arguments: '' } });
+        if (tc.id) t.id = tc.id; // isang beses lang dumating ang id, sa unang chunk
+        if (tc.function?.name) t.function.name += tc.function.name;
+        if (tc.function?.arguments) t.function.arguments += tc.function.arguments;
+      }
+    }
+  }
+
+  if (reasoning) reply.reasoning_content = reasoning;
+  if (toolCalls.length) reply.tool_calls = toolCalls;
+  return { reply, streamed: sawDelta };
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -240,8 +354,11 @@ chrome.runtime.onConnect.addListener((port) => {
   const pending = new Map();
   let seq = 0;
   let abort = null;
+  let run = null; // { id, sessionId } — ie-echo sa lahat ng event para maroute ng panel
 
-  const send = (msg) => port.postMessage(msg);
+  // Bawat mensahe ay may runId para malaman ng panel kung saang session ito papunta —
+  // kaya nang magpalipat-lipat ng tab ang user habang tumatakbo ang agent.
+  const send = (msg) => port.postMessage({ ...msg, runId: run?.id });
 
   // Bawat mensahe ay sabay na naitatala DITO at naipapadala sa panel. Ang panel ang
   // may hawak ng katotohanan, kaya kahit mamatay ang service worker sa kalagitnaan,
@@ -267,15 +384,13 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onMessage.addListener(async (msg) => {
     if (msg.type === 'capture') {
-      // Ang mensahe mula sa offscreen ay dumadaan sa runtime, hindi sa port na ito —
-      // kaya't dito lang natin sinisimulan at pinapatay ito.
       if (msg.on) await startCapture(send);
       else await stopCapture();
       return;
     }
     if (msg.type === 'mic') {
-      // Iniipon hanggang sa susunod na `listen`. Hindi natin ito ipinapasok agad sa
-      // usapan — magugulo ang isang loop na nasa gitna ng trabaho.
+      // Iniipon hanggang sa susunod na `listen` (coach mode). Hindi natin ito ipinapasok
+      // agad sa usapan — magugulo ang isang loop na nasa gitna ng trabaho.
       micHeard.push(msg.text);
       if (micHeard.length > 200) micHeard.shift();
       return;
@@ -291,12 +406,18 @@ chrome.runtime.onConnect.addListener((port) => {
     }
     if (msg.type !== 'ask') return;
 
+    run = { id: msg.runId, sessionId: msg.sessionId };
+
     const { apiKey, model, mode } = await getSettings();
     if (!apiKey) {
       send({ type: 'error', text: 'Walang API key. Ilagay mo sa taas ng panel.' });
       send({ type: 'done' });
       return;
     }
+
+    // I-setup ang scope group BAGO ang lahat — ang kasalukuyang tab ay papasok sa
+    // purple group ng session na ito, at doon lang kikilos ang agent.
+    await ensureScope(msg.sessionId, msg.title);
 
     // Ang panel ang nagpapadala ng buong kasaysayan, kaya kahit namatay ang
     // service worker, buo pa rin ang usapan.
@@ -360,31 +481,32 @@ chrome.runtime.onConnect.addListener((port) => {
         const saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages);
         if (saved > 2000) send({ type: 'tool', name: '_compact', args: { saved } });
 
-        const res = await fetch(API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model, messages, tools: schemaFor(mode), max_tokens: 8192 }),
+        const { reply, error, streamed } = await callModel({
+          apiKey,
+          model,
+          messages,
+          tools: schemaFor(mode),
           signal: abort.signal,
+          onDelta: (type, text) => send({ type, text }),
         });
 
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          send({ type: 'error', text: `API ${res.status}: ${body.slice(0, 400)}` });
+        if (error) {
+          send({ type: 'error', text: error });
           return;
         }
-
-        const reply = (await res.json()).choices?.[0]?.message;
         if (!reply) {
           send({ type: 'error', text: 'Walang laman ang sagot ng API.' });
           return;
         }
         record(reply);
 
-        if (reply.reasoning_content) {
-          send({ type: 'thinking', text: reply.reasoning_content });
-        }
-        if (reply.content) {
-          send({ type: 'assistant', text: reply.content });
+        // Kapag nag-stream na, nabuhay na ang bubble sa panel — sasabihin lang natin
+        // na tapos na. Kapag hindi, ipapadala ang buo tulad ng dati.
+        if (streamed) {
+          send({ type: 'stream_end', hasContent: !!reply.content });
+        } else {
+          if (reply.reasoning_content) send({ type: 'thinking', text: reply.reasoning_content });
+          if (reply.content) send({ type: 'assistant', text: reply.content });
         }
 
         const calls = reply.tool_calls || [];
@@ -499,6 +621,7 @@ chrome.runtime.onConnect.addListener((port) => {
       await setOverlay(false);
       send({ type: 'done' }); // ang kasaysayan ay naipadala na isa-isa
       abort = null;
+      run = null;
     }
   });
 });
