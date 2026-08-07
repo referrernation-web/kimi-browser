@@ -723,14 +723,14 @@ function addAudit(text, model, worker) {
   el.className = 'msg audit';
   const head = document.createElement('div');
   head.className = 'audit-head';
-  head.textContent = `🧐 Second opinion — ${model || 'auditor'}${worker ? ` (ang worker: ${worker})` : ''}`;
+  head.textContent = `🧐 Second brain — ${model || 'auditor'}${worker ? ` (ang worker: ${worker})` : ''}`;
   el.append(head, document.createTextNode(text));
 
   const btn = document.createElement('button');
   btn.className = 'audit-pass';
   btn.textContent = '✉ Ipasa ang puna kay worker';
   btn.onclick = () => {
-    $('ask').value = `Ang sabi ng auditor na si ${model}:\n${text}\n\nAyusin o ituloy mo ang gawain batay sa puna na ito.`;
+    $('ask').value = `Ang sabi ng second brain na si ${model}:\n${text}\n\nAyusin o ituloy mo ang gawain batay sa puna na ito.`;
     btn.disabled = true;
     btn.textContent = 'Naipasa na ✓';
     submit(false);
@@ -838,10 +838,13 @@ function onMessage(m) {
       return save();
     case 'recorded':
       return finishRecording(m.steps);
+    case 'usage':
+      return trackUsage(m);
     case 'done':
       activeRuns.delete(m.runId);
       runsById.delete(m.runId);
       updateSend();
+      if (!activeRuns.size) stopClock();
       renderTabs();
       return chime('done');
   }
@@ -853,6 +856,69 @@ function updateSend() {
   $('send').textContent = busy ? '…' : '↑';
   $('statuslight').classList.toggle('on', busy); // ang violet na ilaw
 }
+
+// --- TIMER: makikita mo kung gaano na katagal ang gawaing tumatakbo ---
+let runClock = null;
+let clockStart = 0;
+function startClock() {
+  clockStart = Date.now();
+  clearInterval(runClock);
+  const tick = () => {
+    const s = Math.floor((Date.now() - clockStart) / 1000);
+    $('timer').textContent = `⏱ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  tick();
+  runClock = setInterval(tick, 1000);
+}
+function stopClock() {
+  clearInterval(runClock);
+  runClock = null;
+  $('timer').textContent = '';
+}
+
+// --- USAGE TRACKING: ilang run at segundo ang ginugol ng bawat model ---
+async function trackUsage(m) {
+  if (!m.model) return;
+  const { usage = {} } = await chrome.storage.local.get('usage');
+  const u = (usage[m.model] ||= { calls: 0, seconds: 0 });
+  u.calls++;
+  u.seconds += m.seconds || 0;
+  await chrome.storage.local.set({ usage });
+}
+
+const fmtSecs = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
+
+$('stats').onclick = async () => {
+  const { usage = {} } = await chrome.storage.local.get('usage');
+  const entries = Object.entries(usage).sort((a, b) => b[1].seconds - a[1].seconds);
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  const b = document.createElement('b');
+  const total = entries.reduce((n, [, u]) => n + u.seconds, 0);
+  b.textContent = entries.length
+    ? `📊 Usage — ${entries.length} model, ${fmtSecs(total)} kabuuan`
+    : 'Wala pang naitatalang usage.';
+  box.append(b);
+  for (const [model, u] of entries) {
+    const row = document.createElement('div');
+    row.className = 'dim';
+    row.style.marginTop = '4px';
+    row.textContent = `${model} — ${u.calls} run · ${fmtSecs(u.seconds)}`;
+    box.append(row);
+  }
+  if (entries.length) {
+    const reset = document.createElement('button');
+    reset.textContent = 'I-reset ang stats';
+    reset.style.marginTop = '7px';
+    reset.onclick = async () => {
+      await chrome.storage.local.set({ usage: {} });
+      box.remove();
+    };
+    box.append(reset);
+  }
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+};
 
 // --- MGA LARAWANG IDINIKIT ---
 // Ang hilaw na screenshot ay 2-4 MB bilang base64. Pinapaliit natin bago ipadala:
@@ -981,6 +1047,7 @@ function submit(viaVoice = false) {
   runsById.set(runId, s.id);
   activeRuns.add(runId);
   updateSend();
+  startClock(); // timer ng gawain
   renderTabs();
   save();
 
@@ -1158,7 +1225,7 @@ $('export').onclick = () => {
     else if (e.t === 'assistant') lines.push('## Kimi K3', '', e.text, '');
     else if (e.t === 'tool') lines.push(`> ${e.text}`, '');
     else if (e.t === 'error') lines.push(`> ⚠ ${e.text}`, '');
-    else if (e.t === 'audit') lines.push(`## 🧐 Second opinion (${e.model || 'auditor'})`, '', e.text, '');
+    else if (e.t === 'audit') lines.push(`## 🧐 Second brain (${e.model || 'auditor'})`, '', e.text, '');
     else if (e.t === 'table') {
       lines.push(
         `### ${e.title}`,
@@ -1233,7 +1300,7 @@ $('mem').onclick = async () => {
   log.scrollTop = log.scrollHeight;
 };
 
-// --- AUDIT (second opinion mula sa ibang AI) ---
+// --- AUDIT (second brain mula sa ibang AI) ---
 $('audit').onclick = () => {
   auditOn = !auditOn;
   $('audit').classList.toggle('on', auditOn);
@@ -1244,8 +1311,8 @@ $('audit').onclick = () => {
     emit(s, {
       t: 'tool',
       text: auditOn
-        ? `🧐 Second opinion ON — si ${$('auditmodel').value} ang mag-audit ng bawat huling sagot (ibang provider, sabay na tawag)`
-        : '🧐 Second opinion OFF',
+        ? `🧐 Second brain ON — si ${$('auditmodel').value} ang magrerepaso at mag-i-improve ng bawat huling sagot`
+        : '🧐 Second brain OFF',
     });
 };
 $('auditprovider').onchange = () => {
