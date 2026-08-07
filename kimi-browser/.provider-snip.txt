@@ -1,6 +1,0 @@
-        <select id="provider" title="Provider">
-          <option value="kimi">Kimi</option>
-          <option value="tokenplan">Alibaba Token Plan</option>
-          <option value="dashscope">Alibaba Qwen</option>
-          <option value="custom">Custom</option>
-        </select>
