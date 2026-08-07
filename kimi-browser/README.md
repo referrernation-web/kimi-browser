@@ -3,6 +3,22 @@
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 
+## Anong bago sa v0.3.1 (harness upgrade — parang mga tip sa Reddit)
+
+- **Model routing** — `k3-256k` (mabilis/mura) ang default ng buong loop; kusang
+  lumilipat sa `k3` (1M) kapag dalawang sunod na step ang may error o lalampas sa
+  konteksto. Bayad ka lang ng malakas na model kapag kailangan talaga.
+- **Auto-compaction** — bago mapuno ang konteksto, ini-summarize ng model ang naunang
+  bahagi ng usapan at iyon lang ang pinapanatili (may tool-pairing safety). Ang mga
+  durable na fact ay awtomatikong nase-save sa memory bago mawala ang detalye.
+  Gamot sa "nagbobobo habang humahaba ang session."
+- **Verification loop** — bawat click ay may before/after signature ng page:
+  `nagbago: url/dom/wala`. Kapag "wala", may babala agad at magbabago ng diskarte
+  ang agent sa halip na ulitin nang bulag — walang dagdag na API call.
+- **Token discipline** — maikli ang pag-iisip sa mekanikal na hakbang (click, type,
+  scroll) ayon sa system prompt; ang malalim na pag-aanalisa ay para sa paghahambing
+  at debugging lang.
+
 ## Anong bago sa v0.3
 
 - **WordPress/Elementor toolkit** — `read_console` (JS errors at nabigong network calls),
@@ -76,9 +92,9 @@ ng ibang session tab, babalik ang tanong kapag bumalik ka sa tab na iyon.
 
 | File | Laman |
 |---|---|
-| `background.js` | agent loop, Kimi API (streaming), permission gate, scope group setup, autopilot, alarms |
+| `background.js` | agent loop, Kimi API (streaming), permission gate, scope group setup, autopilot, alarms, model routing, auto-compaction |
 | `tools.js` | tool schema + dispatch, working tab logic, waitForLoad, generate_image, shortcuts, schedules |
-| `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type, console hook, paste, recorder) |
+| `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type, console hook, paste, recorder, page signature) |
 | `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export, autopilot/record/schedule buttons |
 | `memory.js` | natutunan niya per-site at tungkol sa iyo |
 | `history.js` | pag-aayos ng mga naulilang tool call |
