@@ -8,6 +8,7 @@ export const WRITES = new Set(['click', 'type', 'navigate', 'new_tab', 'close_ta
 export const DANGER = new Set(['close_tab']);
 
 export const MODES = {
+  adaptive: { label: 'Adaptive', hint: 'Nagtatanong sa unang beses ng bawat aksyon, tapos tiwala na sa buong gawain.' },
   manual: { label: 'Manual', hint: 'Nagtatanong bago ang bawat aksyon.' },
   auto: { label: 'Auto', hint: 'Kusang kumikilos; nagtatanong pa rin sa hindi na maibabalik.' },
   plan: { label: 'Plan', hint: 'Read-only. Nagbabasa at nagpaplano, hindi kumikilos.' },
@@ -18,11 +19,31 @@ export const MODES = {
 // Ang plan at coach ay pareho: nakakabasa, nakakakita, nakakarinig — walang binabago.
 const READ_ONLY = new Set(['plan', 'coach']);
 
+// --- ADAPTIVE: natututo sa loob ng isang gawain ---
+// Sa unang pagkakataon ng bawat uri ng aksyon (click, type, navigate, new_tab) ay
+// magtatanong ito; kapag pinayagan mo, hindi na ito magtatanong ulit SA LOOB NG
+// GAWAIN NA IYON. Ang close_tab ay laging nagtatanong. Sa susunod na gawain,
+// nagsisimula ulit sa wala — kaya awtomatiko itong nag-a-adjust: maingat sa simula,
+// mabilis kapag tiwala na.
+const approved = new Set();
+
+export function markApproved(name) {
+  approved.add(name);
+}
+
+export function resetApprovals() {
+  approved.clear();
+}
+
 // Kailangan ba ng pindot ng tao bago patakbuhin ang `name` sa `mode`?
 export function needsApproval(mode, name) {
   if (!WRITES.has(name)) return false;
   if (mode === 'bypass') return false;
   if (mode === 'auto') return DANGER.has(name);
+  if (mode === 'adaptive') {
+    if (DANGER.has(name)) return true; // ang hindi na maibabalik ay laging nagtatanong
+    return !approved.has(name);
+  }
   return true; // manual (ang read-only na mode ay hindi man lang nakakakita ng write tools)
 }
 
@@ -348,7 +369,7 @@ export function waitForLoad(tabId, timeoutMs = 10000) {
 async function point(ref) {
   try {
     await inPage(overlay, ['point', ref]);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 150));
   } catch {} // ang palamuti ay hindi dapat magpabagsak ng aksyon
 }
 
@@ -452,7 +473,7 @@ export async function runTool(name, args) {
       await point(args.ref);
       const out = await inPage(clickRef, [args.ref]);
       // Hintayin kung magna-navigate; kung hindi, maikling settle lang.
-      await settle(500);
+      await settle(250);
       const now = await chrome.tabs.get(tab.id).catch(() => null);
       if (now && now.status === 'loading') {
         await waitForLoad(tab.id, 8000);
@@ -469,7 +490,7 @@ export async function runTool(name, args) {
       const tab = await workingTab();
       await chrome.tabs.update(tab.id, { url: args.url });
       await waitForLoad(tab.id, 10000);
-      await settle(300);
+      await settle(150);
       return { ok: true, url: args.url };
     }
     case 'listen': {
@@ -510,7 +531,7 @@ export async function runTool(name, args) {
       }
       scope.workingTabId = t.id;
       await waitForLoad(t.id, 10000);
-      await settle(300);
+      await settle(150);
       return { ok: true, tabId: t.id };
     }
     case 'close_tab': {
