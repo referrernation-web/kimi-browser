@@ -151,9 +151,22 @@
       #send { width: 42px; font-size: 15px; }
       #send:disabled { opacity: .55; cursor: default; }
       #mic.on, #tap.on { background: var(--err); border-color: var(--err); animation: breathe 1.6s infinite; }
-      #tts.on, #sound.on, #pilot.on { background: color-mix(in srgb, var(--accent) 18%, var(--field)); border-color: var(--accent); }
+      #tts.on, #sound.on, #pilot.on, #audit.on { background: color-mix(in srgb, var(--accent) 18%, var(--field)); border-color: var(--accent); }
       #rec.on { background: var(--err); border-color: var(--err); animation: breathe 1.6s infinite; }
       @keyframes breathe { 50% { opacity: .55; } }
+
+      /* --- AUDIT BUBBLE: second opinion mula sa ibang AI --- */
+      .msg.audit { border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
+      .msg.audit.live { border-style: solid; }
+      .audit-head {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; font-weight: 700; color: var(--accent); margin-bottom: 4px;
+      }
+      .audit-pass {
+        margin-top: 7px; font-size: 11.5px; padding: 3px 9px;
+        border: 1px solid var(--accent); color: var(--accent); background: none;
+        display: inline-block; width: auto;
+      }
     </style>
   </head>
   <body>
@@ -184,6 +197,17 @@
         <datalist id="models"></datalist>
         <input id="baseurl" placeholder="https://... (base URL ng custom provider)" style="display:none" />
       </div>
+      <div class="row" id="auditrow" style="display:none">
+        <span class="dim" style="flex:none">🧐 Auditor:</span>
+        <select id="auditprovider" title="Provider ng auditor" style="width:auto;flex:none">
+          <option value="kimi">Kimi</option>
+          <option value="tokenplan">Alibaba Token Plan</option>
+          <option value="dashscope">Alibaba Qwen</option>
+          <option value="custom">Custom</option>
+        </select>
+        <input id="auditmodel" list="amodels" placeholder="model ng auditor" title="Model ng auditor" />
+        <datalist id="amodels"></datalist>
+      </div>
       <div class="row">
         <select id="mode">
           <option value="adaptive">Adaptive</option>
@@ -205,6 +229,7 @@
 
     <div id="tabs">
       <div id="tabstrip"></div>
+      <button id="audit" title="Second opinion — iaa-audit ng ibang AI ang bawat huling sagot">🧐</button>
       <button id="pilot" title="Autopilot — kusang nagpapatuloy sa susunod na hakbang (max 5 na kadena)">🛩</button>
       <button id="rec" title="Record — i-record ang mga pindot mo sa working tab bilang shortcut">⏺</button>
       <button id="sched" title="Mga naka-iskedyul na gawain">⏰</button>
