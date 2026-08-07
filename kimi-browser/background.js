@@ -447,6 +447,13 @@ chrome.runtime.onConnect.addListener((port) => {
     await ensureScope(msg.sessionId, msg.title);
     resetApprovals(); // ang Adaptive mode ay nagsisimula sa wala sa bawat gawain
 
+    // Ang violet na ilaw sa toolbar icon — kita kahit sarado ang panel, para
+    // malalaman mo kung tumatakbo pa siya habang nasa ibang tab ka.
+    try {
+      await chrome.action.setBadgeBackgroundColor({ color: '#7c5cff' });
+      await chrome.action.setBadgeText({ text: '●' });
+    } catch {}
+
     // Ang panel ang nagpapadala ng buong kasaysayan, kaya kahit namatay ang
     // service worker, buo pa rin ang usapan.
     const modeNote = mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : '';
@@ -655,6 +662,9 @@ chrome.runtime.onConnect.addListener((port) => {
       await setOverlay(false);
       send({ type: 'done' }); // ang kasaysayan ay naipadala na isa-isa
       notify('Kimi K3', 'Tapos na ang gawain — buksan ang panel para makita ang resulta.');
+      try {
+        await chrome.action.setBadgeText({ text: '' }); // patayin ang ilaw
+      } catch {}
       abort = null;
       run = null;
     }
