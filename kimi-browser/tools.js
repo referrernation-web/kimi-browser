@@ -421,12 +421,13 @@ export function waitForLoad(tabId, timeoutMs = 10000) {
   });
 }
 
-// Ipinapakita ang cursor sa element at binibigyan ito ng sandali para makagalaw
-// bago ang aksyon — para may makita ang tao, hindi biglaang pagkumpas.
+// Ipinapakita ang cursor sa element bago ang aksyon — pero WALANG artipisyal na hintay:
+// ang injection mismo (~40ms) ang sapat nang biswal na senyales.
 async function point(ref) {
   try {
+    // Walang artipisyal na hintay — ang injection mismo (~40ms) ang sapat nang
+    // biswal na senyales. Ang 150ms na pause bago ang BAWAT aksyon ay purong aksaya.
     await inPage(overlay, ['point', ref]);
-    await new Promise((r) => setTimeout(r, 150));
   } catch {} // ang palamuti ay hindi dapat magpabagsak ng aksyon
 }
 
@@ -500,7 +501,9 @@ export async function runTool(name, args) {
     case 'remember':
       return remember(args.scope, args.note, await currentDomain());
     case 'read_page':
-      return inPage(readPage, [12000]);
+      // 9,000 karakter ang badyet — ~25% mas kaunting input tokens kada basa,
+      // mas mabilis magsimula ang bawat tawag. Sapat pa rin para sa karamihan ng page.
+      return inPage(readPage, [9000]);
     case 'read_console': {
       // I-hook muna sa MAIN world (doon nabubuhay ang console ng page), tapos basahin.
       // Idempotent ang hook — walang masasira kahit paulit-ulit ang tawag.
@@ -606,11 +609,11 @@ export async function runTool(name, args) {
       await point(args.ref);
       const out = await inPage(clickRef, [args.ref]);
       // Hintayin kung magna-navigate; kung hindi, maikling settle lang.
-      await settle(250);
+      await settle(200);
       const now = await chrome.tabs.get(tab.id).catch(() => null);
       if (now && now.status === 'loading') {
         await waitForLoad(tab.id, 8000);
-        await settle(200);
+        await settle(100);
       }
       const after = await inPage(pageSig).catch(() => null);
       if (before && after) {
@@ -631,7 +634,7 @@ export async function runTool(name, args) {
       const tab = await workingTab();
       await chrome.tabs.update(tab.id, { url: args.url });
       await waitForLoad(tab.id, 10000);
-      await settle(150);
+      await settle(50); // tapos na ang page — halos walang hintay na kailangan
       // Ibalik ang TUNAY na naging URL at title — ang verification ay dapat
       // nakabatay sa nangyari, hindi sa hinihingi.
       const sig = await inPage(pageSig).catch(() => null);
@@ -675,7 +678,7 @@ export async function runTool(name, args) {
       }
       scope.workingTabId = t.id;
       await waitForLoad(t.id, 10000);
-      await settle(150);
+      await settle(50);
       return { ok: true, tabId: t.id };
     }
     case 'close_tab': {
