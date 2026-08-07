@@ -1,4 +1,4 @@
-import { needsApproval, schemaFor, runTool, setOverlay, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
+import { needsApproval, schemaFor, runTool, setOverlay, setStatus, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL } from './tools.js';
 import { promptFor } from './memory.js';
 
 // --- PROVIDERS ---
@@ -314,7 +314,10 @@ Sagutin mo ito, sa pagkakasunod na ito:
    (hal. ibang source, mas murang paraan, dagdag na check, o mas magandang output format).
 
 Maikli at matapang: 3 hanggang 5 bala. Kung ayos ang trabaho, sabihin mo — pero
-magbigay ka pa rin ng isang improvement idea. Sumagot sa wika ng user.`;
+magbigay ka pa rin ng isang improvement idea. Sumagot sa wika ng user.
+
+TAPUSIN mo ang sagot sa linyang "SCORE: X/10" (10 = perpekto na ang trabaho ng
+worker). Ito ang boto mo — gagamitin ito ng consensus kapag maraming auditor.`;
 
 // --- WORDPRESS/ELEMENTOR PLAYBOOK ---
 // Idinadagdag sa system prompt kapag nasa wp-admin ang working tab — parang built-in
@@ -754,6 +757,7 @@ chrome.runtime.onConnect.addListener((port) => {
     abort = new AbortController();
     const stopKeepAlive = keepAlive();
     await setOverlay(true);
+    setStatus('Nag-iisip…');
 
     // Dito siya tumatalino sa paggamit. Pagkatapos ng bawat totoong gawain, isang tawag
     // na ang tanging tool ay `remember`: ano ang natutunan mo na magtitipid ng hakbang
@@ -859,37 +863,60 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     }
 
-    // SECOND BRAIN: pagkatapos ng gawain, ipa-audit ang huling sagot sa ibang AI.
-    // Hiwalay na tawag ito sa ibang provider/key — pwedeng magkasabay sila ng worker.
+    // SECOND BRAIN + VOTING: pagkatapos ng gawain, ipa-audit ang huling sagot sa
+    // ibang AI — o sa MARAMING AI nang SABAY-SABAY (comma-separated sa audit model
+    // field, hal. "qwen3.8-max, deepseek-v4-pro"). Bawat isa ay may SCORE na boto;
+    // ang average ang consensus. Magkahiwalay na tawag, magkakasabay tumatakbo.
     async function runAudit(finalText) {
       if (!audit || !auditKey || !auditUrl || !finalText) return;
+      const models = String(auditModel)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      if (!models.length) return;
+
       const auditStart = Date.now();
       const firstUser = (
         messages.find((m) => m.role === 'user' && typeof m.content === 'string')?.content || ''
       ).slice(0, 600);
-      send({ type: 'tool', name: '_audit', args: { model: auditModel } });
-      const { reply, streamed } = await callModel({
-        url: auditUrl,
-        apiKey: auditKey,
-        model: auditModel,
-        messages: [
-          { role: 'system', content: AUDIT_SYSTEM },
-          {
-            role: 'user',
-            content:
-              `ANG UTOOS NG USER:\n${firstUser}\n\n` +
-              `ANG HULING SAGOT NG WORKER (${routedModel}):\n${finalText.slice(0, 8000)}`,
-          },
-        ],
-        signal: abort.signal,
-        onDelta: (type, text) => {
-          if (type === 'assistant_delta') send({ type: 'audit_delta', text });
-        },
-      });
-      if (!reply) return;
-      if (!streamed && reply.content) send({ type: 'audit_delta', text: reply.content });
-      send({ type: 'audit_end', model: auditModel, worker: routedModel });
-      send({ type: 'usage', model: auditModel, seconds: Math.round((Date.now() - auditStart) / 1000) });
+      send({ type: 'tool', name: '_audit', args: { model: models.join(' + ') } });
+
+      const scores = [];
+      await Promise.allSettled(
+        models.map(async (mName, slot) => {
+          const { reply, streamed } = await callModel({
+            url: auditUrl,
+            apiKey: auditKey,
+            model: mName,
+            messages: [
+              { role: 'system', content: AUDIT_SYSTEM },
+              {
+                role: 'user',
+                content:
+                  `ANG UTOOS NG USER:\n${firstUser}\n\n` +
+                  `ANG HULING SAGOT NG WORKER (${routedModel}):\n${finalText.slice(0, 8000)}`,
+              },
+            ],
+            signal: abort.signal,
+            onDelta: (type, text) => {
+              if (type === 'assistant_delta') send({ type: 'audit_delta', slot, model: mName, text });
+            },
+          });
+          const text = reply?.content || '';
+          if (!streamed && text) send({ type: 'audit_delta', slot, model: mName, text });
+          send({ type: 'audit_end', slot, model: mName, worker: routedModel });
+          const sc = /SCORE:\s*(\d+(?:\.\d+)?)/i.exec(text);
+          if (sc) scores.push(Math.min(10, +sc[1]));
+          send({ type: 'usage', model: mName, seconds: Math.round((Date.now() - auditStart) / 1000) });
+        })
+      );
+
+      // Ang consensus: ang average ng mga boto. 7 pataas ay pass.
+      if (scores.length) {
+        const avg = Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
+        send({ type: 'vote', avg, pass: avg >= 7, n: scores.length });
+      }
     }
 
     let failStreak = 0; // sunod na step na may error — para sa model routing
@@ -948,12 +975,13 @@ chrome.runtime.onConnect.addListener((port) => {
         record(reply);
 
         // Kapag nag-stream na, nabuhay na ang bubble sa panel — sasabihin lang natin
-        // na tapos na. Kapag hindi, ipapadala ang buo tulad ng dati.
+        // na tapos na. Kapag hindi, ipapadala ang buo tulad ng dati. Laging kasama
+        // ang model name — transparency kung sino ang nagsasalita.
         if (streamed) {
-          send({ type: 'stream_end', hasContent: !!reply.content });
+          send({ type: 'stream_end', hasContent: !!reply.content, model: routedModel });
         } else {
           if (reply.reasoning_content) send({ type: 'thinking', text: reply.reasoning_content });
-          if (reply.content) send({ type: 'assistant', text: reply.content });
+          if (reply.content) send({ type: 'assistant', text: reply.content, model: routedModel });
         }
 
         const calls = reply.tool_calls || [];
@@ -1013,6 +1041,25 @@ chrome.runtime.onConnect.addListener((port) => {
             result = { answer };
           } else {
             send({ type: 'tool', name, args });
+            // Ang live na status sa banner ng page — makikita ng user ang ginagawa NGAYON.
+            setStatus(
+              ({
+                read_page: 'Binabasa ang page',
+                screenshot: 'Tumitingin sa screen',
+                generate_image: 'Gumagawa ng larawan',
+                read_console: 'Binabasa ang console',
+                listen: 'Nakikinig…',
+                click: `Pinipindot ang ${args.ref || ''}`,
+                type: 'Isinusulat…',
+                paste_large: 'Nagpa-paste ng malaking teksto…',
+                navigate: `Pumupunta sa ${args.url || ''}`.slice(0, 50),
+                new_tab: 'Binubuksan ang bagong tab',
+                scroll: 'Nag-scroll…',
+                close_tab: 'Isinasara ang tab',
+                run_shortcut: `Pinapatakbo ang ${args.name || 'shortcut'}`,
+                schedule_task: 'Nag-iiskedyul ng gawain',
+              })[name] || name
+            );
             if (needsApproval(mode, name)) notify(`Pahintulot: ${name}`, JSON.stringify(args));
             if (needsApproval(mode, name) && !(await prompt({ type: 'confirm', tool: name, args }))) {
               result = { error: 'Tinanggihan ng user ang hakbang na ito.' };
@@ -1084,7 +1131,7 @@ chrome.runtime.onConnect.addListener((port) => {
         const m2 = (await last.json()).choices?.[0]?.message;
         if (m2) {
           record(m2);
-          if (m2.content) send({ type: 'assistant', text: m2.content });
+          if (m2.content) send({ type: 'assistant', text: m2.content, model: routedModel });
         }
       }
     } catch (e) {
