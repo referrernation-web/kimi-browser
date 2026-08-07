@@ -436,7 +436,7 @@ $('auditclear').onclick = () => {
 chrome.storage.local
   .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme',
         'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach', 'ttsEngine', 'cartesiaKey',
-        'mcpUrl', 'mcpToken'])
+        'mcpUrl', 'mcpToken', 'mcpServers'])
   .then((d) => {
     apiKeys = d.apiKeys || {};
     // Migration: ang lumang single apiKey ay para sa Kimi; ang groqKey ng Whisper
@@ -464,9 +464,10 @@ chrome.storage.local
     $('cartesiakey').value = d.cartesiaKey || BUILTIN_CARTESIA_KEY;
     syncTtsRow();
     if (ttsEngine === 'cartesia') loadCartesiaVoices();
-    // MCP connectors
-    $('mcpurl').value = d.mcpUrl || '';
-    $('mcptoken').value = d.mcpToken || '';
+    // Migration: ang lumang single MCP URL ay nagiging unang connector entry.
+    if (d.mcpUrl && !(d.mcpServers || []).length) {
+      chrome.storage.local.set({ mcpServers: [{ name: 'MCP', url: d.mcpUrl, token: d.mcpToken || '', on: true }] });
+    }
     // Auditor settings
     auditOn = !!d.audit;
     $('audit').classList.toggle('on', auditOn);
@@ -775,8 +776,157 @@ $('cartesiakey').onchange = () => {
   loadCartesiaVoices();
 };
 $('cartesiavoice').onchange = () => chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
-$('mcpurl').onchange = () => chrome.storage.local.set({ mcpUrl: $('mcpurl').value.trim() });
-$('mcptoken').onchange = () => chrome.storage.local.set({ mcpToken: $('mcptoken').value.trim() });
+// --- 🔌 CONNECTORS: parang kay Claude — gallery, Connect, status ---
+// Bawat connector ay isang MCP server URL. Ang mga aggregator (Zapier, Composio) ay
+// naglalantad ng libu-libong app sa likod ng iisang URL na may kasamang auth nila.
+const CONNECTOR_GALLERY = [
+  { name: 'Zapier', desc: 'Gmail, Sheets, Slack + libu-libong app — iisang URL', get: 'https://zapier.com/mcp', hint: 'https://mcp.zapier.com/api/mcp/s/…' },
+  { name: 'Composio', desc: 'Daan-daang app connectors, sila ang bahala sa auth', get: 'https://mcp.composio.dev', hint: 'https://mcp.composio.dev/…' },
+  { name: 'Notion', desc: 'Basahin at sulatan ang Notion workspace mo', get: 'https://developers.notion.com/docs/mcp', hint: 'https://mcp.notion.com/mcp' },
+  { name: 'GitHub', desc: 'Repos, issues, pull requests', get: 'https://github.com/github/github-mcp-server', hint: 'https://api.githubcopilot.com/mcp/' },
+  { name: 'Custom', desc: 'Kahit anong MCP server (Streamable HTTP)', get: '', hint: 'https://…' },
+];
+
+// Maliit na MCP handshake para sa "I-test" — initialize → initialized → tools/list.
+async function mcpPing(url, token) {
+  const hdr = (sid) => ({
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(sid ? { 'Mcp-Session-Id': sid } : {}),
+  });
+  const parse = async (res) => {
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('event-stream')) return res.json().catch(() => null);
+    let d = null;
+    for (const l of (await res.text()).split('\n')) {
+      if (!l.startsWith('data:')) continue;
+      try {
+        const j = JSON.parse(l.slice(5));
+        if (j.result !== undefined || j.error !== undefined) d = j;
+      } catch {}
+    }
+    return d;
+  };
+  let res = await fetch(url, {
+    method: 'POST', headers: hdr(),
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'kimi-browser', version: '0.11.0' } } }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const sid = res.headers.get('mcp-session-id');
+  await parse(res);
+  await fetch(url, { method: 'POST', headers: hdr(sid), body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) });
+  res = await fetch(url, { method: 'POST', headers: hdr(sid), body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
+  const d = await parse(res);
+  if (d?.error) throw new Error(d.error.message || 'MCP error');
+  return (d?.result?.tools || []).length;
+}
+
+$('conn').onclick = async () => {
+  $('menu').style.display = 'none';
+  const { mcpServers = [] } = await chrome.storage.local.get('mcpServers');
+  const box = document.createElement('div');
+  box.className = 'connbox';
+  const head = document.createElement('b');
+  head.textContent = '🔌 Connectors';
+  box.append(head);
+
+  const saveList = (list) => chrome.storage.local.set({ mcpServers: list });
+
+  // Mga naka-connect na
+  if (!mcpServers.length) {
+    const d = document.createElement('div');
+    d.className = 'dim';
+    d.textContent = 'Wala pang naka-connect. Pumili sa ibaba — isang URL lang ang kailangan.';
+    box.append(d);
+  }
+  for (const s of mcpServers) {
+    const row = document.createElement('div');
+    row.className = 'crow';
+    const onBtn = document.createElement('button');
+    onBtn.textContent = s.on === false ? '○' : '●';
+    onBtn.title = s.on === false ? 'Naka-off — i-click para i-on' : 'Naka-on — i-click para i-off';
+    onBtn.onclick = async () => {
+      s.on = s.on === false;
+      onBtn.textContent = s.on === false ? '○' : '●';
+      await saveList(mcpServers);
+    };
+    const nm = document.createElement('b');
+    nm.textContent = s.name || 'MCP';
+    const ds = document.createElement('span');
+    ds.className = 'd';
+    ds.textContent = s.url;
+    const st = document.createElement('span');
+    st.className = 'st-ok';
+    st.textContent = '…';
+    const del = document.createElement('button');
+    del.textContent = '✕';
+    del.title = 'Alisin';
+    del.onclick = async () => {
+      await saveList(mcpServers.filter((x) => x !== s));
+      row.remove();
+    };
+    row.append(onBtn, nm, ds, st, del);
+    box.append(row);
+    // Awtomatikong i-ping para makita agad kung buhay — parang status ni Claude.
+    mcpPing(s.url, s.token).then(
+      (n) => (st.textContent = `✓ ${n} tools`),
+      (e) => { st.className = 'st-err'; st.textContent = '✗ ' + String(e.message).slice(0, 30); }
+    );
+  }
+
+  // Gallery ng mapagpipilian
+  const gal = document.createElement('div');
+  gal.className = 'gal';
+  const form = document.createElement('div');
+  form.className = 'addform';
+  form.style.display = 'none';
+  for (const g of CONNECTOR_GALLERY) {
+    const b = document.createElement('button');
+    b.textContent = g.name;
+    b.title = g.desc;
+    b.onclick = () => {
+      form.style.display = '';
+      form.replaceChildren();
+      const hint = document.createElement('div');
+      hint.className = 'hint';
+      hint.append(`${g.desc}. `);
+      if (g.get) {
+        const a = document.createElement('a');
+        a.href = g.get;
+        a.target = '_blank';
+        a.textContent = 'Kunin ang URL mo dito →';
+        hint.append(a);
+      }
+      const urlIn = document.createElement('input');
+      urlIn.placeholder = g.hint;
+      const tokIn = document.createElement('input');
+      tokIn.type = 'password';
+      tokIn.placeholder = 'Bearer token (kung kailangan — karamihan sa Zapier/Composio URL ay may kasama na)';
+      const save = document.createElement('button');
+      save.textContent = 'I-test at i-connect';
+      save.onclick = async () => {
+        const url = urlIn.value.trim();
+        if (!url) return;
+        save.textContent = 'Sinusubukan…';
+        try {
+          const n = await mcpPing(url, tokIn.value.trim());
+          const { mcpServers: cur = [] } = await chrome.storage.local.get('mcpServers');
+          cur.push({ name: g.name === 'Custom' ? new URL(url).hostname : g.name, url, token: tokIn.value.trim(), on: true });
+          await saveList(cur);
+          save.textContent = `✓ Konektado — ${n} tools! Buksan muli ang 🔌 para makita.`;
+        } catch (e) {
+          save.textContent = `✗ ${String(e.message).slice(0, 40)} — subukan ulit`;
+        }
+      };
+      form.append(hint, urlIn, tokIn, save);
+    };
+    gal.append(b);
+  }
+  box.append(gal, form);
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+};
 
 function maybeSpeak(text) {
   speak(text, () => {

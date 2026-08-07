@@ -3,6 +3,16 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.11.0 (Connectors gallery — parang kay Claude)
+
+- **🔌 Connect sa ⋯ menu** — buong connectors view na parang kay Claude: gallery ng
+  mapagpipilian (Zapier, Composio, Notion, GitHub, Custom), "I-test at i-connect" na
+  button, at status kada connector (✓ ilan ang tools / ✗ ano ang mali) na kusang
+  nagche-check pagbukas. On/off toggle at ✕ kada connector.
+- **Maraming connector nang SABAY-SABAY** — hanggang 4 na MCP server nang magkakasama
+  (hal. Zapier para sa Gmail/Sheets + Notion nang sabay), pinagsasama ang tools nila
+  sa iisang agent, naka-tag kung saang connector galing ang bawat isa.
+
 ## Anong bago sa v0.10.0 (mas mabilis, mas matalino, at nakakonekta na sa labas)
 
 - **🔌 MCP connectors** — ilagay sa ⚙ ang URL ng kahit anong MCP server (hal. Zapier

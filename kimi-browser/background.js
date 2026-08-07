@@ -200,21 +200,22 @@ export function toolTrail(messages, limit = 24) {
 // likod ng iisang endpoint. Ang mga tool nito ay isinasama sa schema ng worker at
 // tinatrato bilang WRITE (may pahintulot) dahil panlabas na aksyon ang mga ito.
 let mcpSeq = 0;
-const mcpState = { url: '', token: '', sessionId: null, tools: [], nameMap: {} };
+const mcpCache = new Map(); // "url|token" -> connected client
+let mcpRoute = {}; // sanitized tool name -> { client, name } — para malaman kung aling server
 
-async function mcpFetch(method, params, notify = false) {
-  const res = await fetch(mcpState.url, {
+async function mcpRpc(client, method, params, notify = false) {
+  const res = await fetch(client.url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
-      ...(mcpState.token ? { Authorization: `Bearer ${mcpState.token}` } : {}),
-      ...(mcpState.sessionId ? { 'Mcp-Session-Id': mcpState.sessionId } : {}),
+      ...(client.token ? { Authorization: `Bearer ${client.token}` } : {}),
+      ...(client.sessionId ? { 'Mcp-Session-Id': client.sessionId } : {}),
     },
     body: JSON.stringify({ jsonrpc: '2.0', ...(notify ? {} : { id: ++mcpSeq }), method, ...(params ? { params } : {}) }),
   });
   const sid = res.headers.get('mcp-session-id');
-  if (sid) mcpState.sessionId = sid;
+  if (sid) client.sessionId = sid;
   if (notify) return null;
   if (!res.ok) throw new Error(`MCP ${res.status}`);
   const ct = res.headers.get('content-type') || '';
@@ -235,40 +236,62 @@ async function mcpFetch(method, params, notify = false) {
   return data?.result;
 }
 
-async function mcpConnect(url, token) {
-  if (mcpState.url === url && mcpState.token === token && mcpState.tools.length) return; // buhay pa ang session
-  Object.assign(mcpState, { url, token, sessionId: null, tools: [], nameMap: {} });
-  await mcpFetch('initialize', {
+async function mcpClientFor(server) {
+  const key = `${server.url}|${server.token || ''}`;
+  const cached = mcpCache.get(key);
+  if (cached?.tools.length) return cached;
+  const client = { url: server.url, token: server.token || '', sessionId: null, tools: [] };
+  await mcpRpc(client, 'initialize', {
     protocolVersion: '2025-06-18',
     capabilities: {},
-    clientInfo: { name: 'kimi-browser', version: '0.10.0' },
+    clientInfo: { name: 'kimi-browser', version: '0.11.0' },
   });
-  await mcpFetch('notifications/initialized', undefined, true);
-  const res = await mcpFetch('tools/list', {});
-  mcpState.tools = (res?.tools || []).slice(0, 40); // sapat na ang 40 — ang sobra ay gulo sa model
-  for (const t of mcpState.tools) {
-    mcpState.nameMap['mcp_' + t.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50)] = t.name;
-  }
+  await mcpRpc(client, 'notifications/initialized', undefined, true);
+  const res = await mcpRpc(client, 'tools/list', {});
+  client.tools = (res?.tools || []).slice(0, 40); // sapat na ang 40 kada server — ang sobra ay gulo sa model
+  mcpCache.set(key, client);
+  return client;
 }
 
-function mcpSchema() {
-  return mcpState.tools.map((t) => ({
-    type: 'function',
-    function: {
-      name: 'mcp_' + t.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 50),
-      description: `[MCP connector] ${String(t.description || t.name).slice(0, 300)}`,
-      parameters: t.inputSchema || { type: 'object', properties: {} },
-    },
-  }));
+// Ikonekta ang LAHAT ng naka-on na connector at pagsamahin ang kanilang tools sa
+// iisang schema. Bawat tool ay naka-tag kung saang connector galing.
+async function mcpLoad(servers, send) {
+  mcpRoute = {};
+  const schema = [];
+  for (const s of (servers || []).filter((x) => x.url && x.on !== false).slice(0, 4)) {
+    const label = s.name || (() => { try { return new URL(s.url).hostname; } catch { return 'MCP'; } })();
+    try {
+      const client = await mcpClientFor(s);
+      for (const t of client.tools) {
+        const san = ('mcp_' + t.name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
+        if (mcpRoute[san]) continue; // unang connector ang panalo sa magkapangalan
+        mcpRoute[san] = { client, name: t.name };
+        schema.push({
+          type: 'function',
+          function: {
+            name: san,
+            description: `[${label} connector] ${String(t.description || t.name).slice(0, 300)}`,
+            parameters: t.inputSchema || { type: 'object', properties: {} },
+          },
+        });
+      }
+      send({ type: 'tool', name: '_mcp', args: { n: client.tools.length, server: label } });
+    } catch (e) {
+      send({ type: 'error', text: `Hindi maka-connect sa connector na "${label}" (${e.message}) — tuloy pa rin nang wala ito.` });
+    }
+  }
+  return schema;
 }
 
 async function mcpCall(sanName, args) {
-  const r = await mcpFetch('tools/call', { name: mcpState.nameMap[sanName] || sanName.slice(4), arguments: args || {} });
-  const text = (r?.content || [])
+  const r = mcpRoute[sanName];
+  if (!r) return { error: 'Hindi kilalang connector tool — baka naputol ang koneksyon.' };
+  const res = await mcpRpc(r.client, 'tools/call', { name: r.name, arguments: args || {} });
+  const text = (res?.content || [])
     .map((c) => (c.type === 'text' ? c.text : `[${c.type}]`))
     .join('\n')
     .slice(0, 20000);
-  return r?.isError ? { error: text || 'Nabigo ang MCP tool.' } : { ok: true, resulta: text || '(walang laman)' };
+  return res?.isError ? { error: text || 'Nabigo ang connector tool.' } : { ok: true, resulta: text || '(walang laman)' };
 }
 
 // Pinapatay ng Chrome ang service worker pagkatapos ng ~30s na walang tawag sa Chrome API.
@@ -396,7 +419,7 @@ mula sa caption mismo, at magmungkahi batay doon.`;
 async function getSettings() {
   const d = await chrome.storage.local.get([
     'apiKey', 'apiKeys', 'provider', 'customUrl', 'model', 'strongModel', 'mode', 'autopilot',
-    'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach', 'mcpUrl', 'mcpToken',
+    'audit', 'auditProvider', 'auditModel', 'groqKey', 'teach', 'mcpUrl', 'mcpToken', 'mcpServers',
   ]);
   const provider = d.provider || 'kimi';
   const keys = d.apiKeys || {};
@@ -432,8 +455,13 @@ async function getSettings() {
     mode: d.mode || 'adaptive',
     autopilot: !!d.autopilot,
     teach: !!d.teach,
-    mcpUrl: (d.mcpUrl || '').trim(),
-    mcpToken: (d.mcpToken || '').trim(),
+    // Migration: ang lumang single mcpUrl ay nagiging unang entry ng mcpServers.
+    mcpServers:
+      d.mcpServers && d.mcpServers.length
+        ? d.mcpServers
+        : d.mcpUrl
+          ? [{ name: 'MCP', url: (d.mcpUrl || '').trim(), token: (d.mcpToken || '').trim(), on: true }]
+          : [],
     audit: !!d.audit,
     auditProvider,
     auditUrl,
@@ -889,7 +917,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     run = { id: msg.runId, sessionId: msg.sessionId };
 
-    const { apiKey, baseUrl, model, strongModel, mode, autopilot, teach, mcpUrl, mcpToken,
+    const { apiKey, baseUrl, model, strongModel, mode, autopilot, teach, mcpServers,
             audit, auditProvider, auditUrl, auditKey, auditModel } = await getSettings();
     const runStartAt = Date.now(); // para sa usage tracking
     let routedModel = model; // deklarado agad para ligtas sa finally
@@ -919,18 +947,13 @@ chrome.runtime.onConnect.addListener((port) => {
 
     // Ang panel ang nagpapadala ng buong kasaysayan, kaya kahit namatay ang
     // service worker, buo pa rin ang usapan.
-    // MCP: ikonekta at isama ang mga connector tool sa schema ng worker. Ang mga ito
-    // ay panlabas na aksyon (Gmail, Sheets, atbp.) kaya WRITE — may pahintulot.
+    // MCP: ikonekta ang LAHAT ng naka-on na connector at isama ang mga tool nila sa
+    // schema ng worker. Panlabas na aksyon ang mga ito (Gmail, Sheets, atbp.) kaya
+    // WRITE — may pahintulot ang bawat isa.
     let mcpTools = [];
-    if (mcpUrl && mode !== 'plan' && mode !== 'coach') {
-      try {
-        await mcpConnect(mcpUrl, mcpToken);
-        mcpTools = mcpSchema();
-        for (const t of mcpTools) WRITES.add(t.function.name);
-        send({ type: 'tool', name: '_mcp', args: { n: mcpTools.length } });
-      } catch (e) {
-        send({ type: 'error', text: `Hindi maka-connect sa MCP (${e.message}) — tuloy pa rin nang wala ito.` });
-      }
+    if (mcpServers.length && mode !== 'plan' && mode !== 'coach') {
+      mcpTools = await mcpLoad(mcpServers, send);
+      for (const t of mcpTools) WRITES.add(t.function.name);
     }
 
     // AUTO-SKILLS: ang mga napatunayang daloy sa site na ito (mula sa mga dating

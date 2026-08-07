@@ -228,6 +228,22 @@
       .usagebox .ubar { grid-column: 1 / -1; height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
       .usagebox .ubar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
 
+      /* --- CONNECTORS gallery — parang kay Claude: listahan, Connect, status --- */
+      .connbox { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--panel); display: grid; gap: 10px; }
+      .connbox .crow {
+        display: flex; gap: 8px; align-items: center; border: 1px solid var(--line);
+        border-radius: 9px; padding: 8px 10px; background: var(--bg);
+      }
+      .connbox .crow b { font-size: 12.5px; }
+      .connbox .crow .d { color: var(--dim); font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .connbox .st-ok { color: var(--ask); font: 700 11px/1.5 ui-monospace, monospace; flex: none; }
+      .connbox .st-err { color: var(--err); font: 700 11px/1.5 ui-monospace, monospace; flex: none; }
+      .connbox .gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+      .connbox .gal button { font-size: 11.5px; padding: 7px 4px; }
+      .connbox .addform { display: grid; gap: 6px; border-top: 1px dashed var(--line); padding-top: 9px; }
+      .connbox .addform .hint { color: var(--dim); font-size: 11px; }
+      .connbox .addform a { color: var(--accent); }
+
       /* --- AUDIT / SECOND BRAIN bubble --- */
       .msg.audit { border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
       .msg.audit.live { border-style: solid; }
@@ -296,11 +312,6 @@
           <input id="cartesiakey" type="password" placeholder="Cartesia key (sk_car_...)" style="display:none" />
           <select id="cartesiavoice" title="Boses" style="display:none;max-width:140px"></select>
         </div>
-        <div class="row">
-          <span class="dim" style="flex:none">🔌 MCP:</span>
-          <input id="mcpurl" placeholder="https://... (MCP/connector URL — hal. Zapier MCP, opsyonal)" />
-          <input id="mcptoken" type="password" placeholder="token" title="Bearer token ng MCP server (opsyonal)" style="width:100px;flex:none" />
-        </div>
         <div class="row" id="auditrow" style="display:none">
           <span class="dim" style="flex:none">🧐 Second brain:</span>
           <select id="auditprovider" title="Provider ng auditor" style="width:auto;flex:none">
@@ -336,6 +347,7 @@
         <div class="mi"><button id="teach" title="Teaching captions sa page — para matuto ang nanonood">🎓</button><span>Teach</span></div>
         <div class="mi"><button id="rec" title="Record shortcut">⏺</button><span>Record</span></div>
         <div class="mi"><button id="sched" title="Scheduled tasks">⏰</button><span>Schedule</span></div>
+        <div class="mi"><button id="conn" title="MCP connectors — Gmail, Sheets, atbp.">🔌</button><span>Connect</span></div>
         <div class="mi"><button id="stats" title="Usage per model">📊</button><span>Usage</span></div>
         <div class="mi"><button id="mem" title="Ang natutunan niya">🧠</button><span>Memory</span></div>
         <div class="mi"><button id="export" title="I-download bilang Markdown">⤓</button><span>Export</span></div>
