@@ -3,6 +3,15 @@
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 
+## Anong bago sa v0.5.1
+
+- **Second brain** — pinalakas ang auditor: hindi lang taga-hanap ng mali, taga-bigay
+  na rin ng mga improvement idea na lampas sa hinihingi mo (PULIDO / IMPROVE /
+  SUSUNOD NA LEVEL).
+- **Timer** — makikita mo ang elapsed time ng tumatakbong gawain sa tabs row.
+- **Usage stats (📊)** — ilang run at ilang segundo/minuto ang ginugol ng bawat model
+  (worker at auditor magkahiwalay), para makita mo kung alin ang sulit.
+
 ## Anong bago sa v0.5.0 (second opinion — dalawang AI, magkasabay)
 
 - **Worker + Auditor combo** (🧐) — iba ang AI na gumagawa, iba ang nagsusuri. Halimbawa:

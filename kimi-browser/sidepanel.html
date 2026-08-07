@@ -4,8 +4,6 @@
     <meta charset="utf-8" />
     <title>Kimi K3</title>
     <style>
-      /* Tahasang binabaybay ang bawat kulay sa dalawang tema. Ang `transparent` sa
-         <select> ang dahilan kung bakit puti-sa-puti ang mga opsyon sa dark mode. */
       :root {
         color-scheme: light dark;
         --bg: #fff;        --fg: #1a1a1a;    --dim: #5f6570;
@@ -41,7 +39,6 @@
         border-radius: 7px; background: var(--field); color: var(--fg);
         transition: border-color .15s, background .15s;
       }
-      /* Kailangan ito ng Windows: hindi minamana ng <option> ang kulay ng <select>. */
       option { background: var(--field); color: var(--fg); }
       input:focus, select:focus, textarea:focus {
         outline: none; border-color: var(--accent);
@@ -54,7 +51,6 @@
       .dim { color: var(--dim); font-size: 11px; line-height: 1.35; }
       .logo { width: 22px; height: 22px; border-radius: 6px; flex: none; }
 
-      /* --- VIOLET STATUS LIGHT: parang orange ni Claude — kita kahit sari-sarili ang tab mo --- */
       #statuslight {
         width: 9px; height: 9px; border-radius: 50%; flex: none;
         background: var(--accent); box-shadow: 0 0 7px var(--accent);
@@ -62,7 +58,6 @@
       }
       #statuslight.on { display: block; }
 
-      /* --- SESSION TABS: pahalang, nai-drag para mag-reorder --- */
       #tabs {
         display: flex; align-items: flex-end; gap: 5px;
         padding: 6px 9px 0; background: var(--panel);
@@ -155,7 +150,7 @@
       #rec.on { background: var(--err); border-color: var(--err); animation: breathe 1.6s infinite; }
       @keyframes breathe { 50% { opacity: .55; } }
 
-      /* --- AUDIT BUBBLE: second opinion mula sa ibang AI --- */
+      /* --- AUDIT BUBBLE: second brain mula sa ibang AI --- */
       .msg.audit { border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg)); }
       .msg.audit.live { border-style: solid; }
       .audit-head {
@@ -172,7 +167,6 @@
   <body>
     <header>
       <div class="row">
-        <!-- Inline SVG: hindi umaasa sa icons/ folder, kaya gumagana kahit saan i-install -->
         <svg class="logo" viewBox="0 0 128 128" aria-label="K3">
           <defs>
             <linearGradient id="k3g" x1="0" y1="0" x2="1" y2="1">
@@ -229,7 +223,9 @@
 
     <div id="tabs">
       <div id="tabstrip"></div>
-      <button id="audit" title="Second opinion — iaa-audit ng ibang AI ang bawat huling sagot">🧐</button>
+      <span id="timer" class="dim" style="flex:none;align-self:center;margin-bottom:2px"></span>
+      <button id="stats" title="Usage: ilang run at minuto ang ginugol ng bawat model">📊</button>
+      <button id="audit" title="Second brain — iirerepaso at i-improve ng ibang AI ang bawat huling sagot">🧐</button>
       <button id="pilot" title="Autopilot — kusang nagpapatuloy sa susunod na hakbang (max 5 na kadena)">🛩</button>
       <button id="rec" title="Record — i-record ang mga pindot mo sa working tab bilang shortcut">⏺</button>
       <button id="sched" title="Mga naka-iskedyul na gawain">⏰</button>
