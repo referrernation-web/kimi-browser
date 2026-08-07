@@ -3,6 +3,19 @@
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 
+## Anong bago sa v0.3
+
+- **WordPress/Elementor toolkit** — `read_console` (JS errors at nabigong network calls),
+  `paste_large` (malaking HTML/code sa HTML widget, TinyMCE, CodeMirror), at built-in
+  wp-admin/Elementor playbook na awtomatikong naglo-load kapag nasa wp-admin ka.
+- **Autopilot** (🛩) — pagkatapos ng gawain, kusang nagpapatuloy sa susunod na hakbang,
+  max 5 na kadena, nananatili ang lahat ng permission gates.
+- **Record & replay** (⏺) — i-record ang mga pindot mo sa working tab, i-save bilang
+  shortcut, at pa-ulitin sa agent ("i-run ang pangalan").
+- **Scheduled tasks** (⏰) — iskedyul ng gawain nang minsan o paulit-ulit (chrome.alarms).
+  Sa scheduled run ay walang user na sasagot kaya read-only-ish sa disenyo; may
+  notification sa simula at sa resulta.
+
 ## Anong bago sa v0.2
 
 - **Session tabs** — maraming usapan sa side panel. I-drag pahalang para mag-reorder,
@@ -36,7 +49,8 @@ Naka-`chrome.storage.local` ang key — wala sa code, hindi napupunta sa git.
 
 | Mode | Kilos |
 |---|---|
-| **Manual** | Nagtatanong bago ang bawat click/type/navigate. Ito ang default. |
+| **Adaptive** | Nagtatanong sa unang beses ng bawat aksyon, tapos tiwala na sa buong gawain. Ito ang default. |
+| **Manual** | Nagtatanong bago ang bawat aksyon. |
 | **Auto** | Kusang kumikilos, pero nagtatanong pa rin sa hindi na maibabalik (`close_tab`). |
 | **Plan** | Read-only. Tinatanggal sa schema ang write tools — hindi lang hinaharangan, hindi man lang nakikita ng model. |
 | **Coach** | Nakikinig sa caption ng tawag at nagmumungkahi ng sagot. Walang ginagalaw. |
@@ -50,8 +64,8 @@ hadlang ito ng Chrome API, hindi lang patakaran.
 | Tool | Kailangan ng pagpayag |
 |---|---|
 | `ask_user` | — (ang user mismo ang sumasagot) |
-| `read_page`, `screenshot`, `generate_image`, `scroll`, `list_tabs`, `switch_tab`, `listen` | hindi |
-| `click`, `type`, `navigate`, `new_tab` | oo, maliban sa Auto/Bypass |
+| `read_page`, `read_console`, `screenshot`, `generate_image`, `scroll`, `list_tabs`, `switch_tab`, `listen` | hindi |
+| `click`, `type`, `paste_large`, `navigate`, `new_tab`, `run_shortcut`, `schedule_task` | oo, maliban sa Auto/Bypass (sa Adaptive: unang beses lang) |
 | `close_tab` | oo, maliban sa Bypass |
 
 Ang `ask_user` ay humihinto at nagpapakita ng mapipinduting sagot kapag may sangang
@@ -62,10 +76,10 @@ ng ibang session tab, babalik ang tanong kapag bumalik ka sa tab na iyon.
 
 | File | Laman |
 |---|---|
-| `background.js` | agent loop, Kimi API (streaming), permission gate, scope group setup |
-| `tools.js` | tool schema + dispatch, working tab logic, waitForLoad, generate_image |
-| `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type) |
-| `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export |
+| `background.js` | agent loop, Kimi API (streaming), permission gate, scope group setup, autopilot, alarms |
+| `tools.js` | tool schema + dispatch, working tab logic, waitForLoad, generate_image, shortcuts, schedules |
+| `page-fns.js` | mga function na ini-inject sa page (DOM read, click, type, console hook, paste, recorder) |
+| `sidepanel.*` | chat UI, sessions, tabs, voice, sounds, export, autopilot/record/schedule buttons |
 | `memory.js` | natutunan niya per-site at tungkol sa iyo |
 | `history.js` | pag-aayos ng mga naulilang tool call |
 | `offscreen.*` | pagkuha ng tunog ng tab para sa Groq Whisper |
@@ -75,10 +89,14 @@ ng ibang session tab, babalik ang tanong kapag bumalik ka sa tab na iyon.
 
 - Isang run sa isang pagkakataon (kahit maraming session tabs). Ang parallel na run
   kada session ay balang-araw pa.
-- Ang screenshot ay kailangang iharap sandali ang working tab — limitasyon ng
-  `captureVisibleTab` ng Chrome.
+- Ang screenshot ay kailangang iharap sandali ang working tab (isang kisap lang —
+  ibinabalik agad ang tab mo).
 - Ang mga screenshot at generated image ay hindi nase-save kasama ng kasaysayan
   pagkatapos isara ang panel (live lang) — tipid sa 10MB storage quota.
+- Ang console hook ay nakakakuha lang ng mga error PAGKATAPOS niyang ma-inject —
+  i-reload ang page para sa load-time errors.
+- Ang recorder ay nawawala kapag nag-navigate ang page (bagong document) — i-record
+  ang bawat page-load na bahagi nang hiwalay kung kailangan.
 - Hindi umaabot sa `chrome://` at Web Store pages. Hadlang ito ng Chrome mismo, hindi bug.
 - Ang image generation ay may rate limit (libreng provider) — subukan ulit kapag nag-fail.
 - Nawawalan ng bisa ang mga ref kapag nagbago ang page. Sinasabi ito ng error, at

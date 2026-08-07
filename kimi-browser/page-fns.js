@@ -312,3 +312,225 @@ export function scrollPage(direction, amount) {
   window.scrollBy({ top: direction === 'up' ? -px : px, behavior: 'instant' });
   return { ok: true, scrollY: Math.round(window.scrollY) };
 }
+
+// ============================================================================
+// v0.3: WordPress/Elementor toolkit + record & replay
+// ============================================================================
+
+// --- CONSOLE READER ---
+// Ang tunay na console ng page ay nabubuhay sa MAIN world — hindi ito maririnig
+// mula sa isolated world. Kaya ang hookConsole/readConsole ay ini-inject doon.
+export function hookConsole() {
+  if (window.__kimiConsole) return { ok: true, note: 'naka-hook na dati' };
+  const buf = (window.__kimiConsole = []);
+  const push = (level, args) => {
+    try {
+      const text = args
+        .map((a) => {
+          try {
+            return typeof a === 'object' ? JSON.stringify(a).slice(0, 300) : String(a);
+          } catch {
+            return '[object]';
+          }
+        })
+        .join(' ')
+        .slice(0, 500);
+      buf.push({ level, text, at: Date.now() });
+      if (buf.length > 200) buf.shift();
+    } catch {}
+  };
+  for (const level of ['error', 'warn', 'log', 'info']) {
+    const orig = console[level];
+    console[level] = (...a) => {
+      push(level, a);
+      return orig.apply(console, a);
+    };
+  }
+  window.addEventListener('error', (e) => push('pageerror', [e.message, `${e.filename}:${e.lineno}`]));
+  window.addEventListener('unhandledrejection', (e) => push('unhandledrejection', [String(e.reason)]));
+  // Mga nabigong network call — sakupin ang fetch (ang karamihan ng modernong site
+  // ay fetch na; ang XHR ay isusunod na lang kung kailangan talaga).
+  const origFetch = window.fetch;
+  window.fetch = async (...a) => {
+    const res = await origFetch(...a);
+    try {
+      if (res.status >= 400) push('network', [`${res.status} ${String(a[0]).slice(0, 150)}`]);
+    } catch {}
+    return res;
+  };
+  return { ok: true };
+}
+
+export function readConsole() {
+  const buf = window.__kimiConsole || [];
+  const entries = buf.splice(0).map((l) => `[${l.level}] ${l.text}`);
+  return {
+    entries,
+    count: entries.length,
+    hooked: !!window.__kimiConsole,
+    note: entries.length
+      ? null
+      : 'Walang nakuha pa. Ang mga error BAGO i-hook ay hindi nakukuha — i-reload ang page para makita ang mga error sa pag-load.',
+  };
+}
+
+// --- PASTE LARGE ---
+// Para sa mahabang HTML/code: ang Elementor HTML widget, TinyMCE, at CodeMirror ay
+// sumusugal sa iisang malaking insertText — kaya hinahati natin sa chunks, parang
+// tunay na paste na maraming bahagi.
+export function pasteLarge(ref, text, chunkSize) {
+  const el = window.__kimiRefs?.get(ref);
+  if (!el) return { error: `Walang ${ref}. Tumawag muli ng read_page — nagbago ang page.` };
+
+  el.scrollIntoView({ block: 'center' });
+  el.click();
+  el.focus();
+
+  const CHUNK = Math.min(Math.max(chunkSize || 2000, 200), 8000);
+  const full = String(text);
+
+  if (el.isContentEditable) {
+    // CodeMirror 6, TinyMCE, Lexical: select-all + delete muna (buong palit),
+    // tapos sunod-sunod na insertText chunks.
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand('delete', false);
+
+    let i = 0;
+    let method = 'execCommand-chunks';
+    while (i < full.length) {
+      const part = full.slice(i, i + CHUNK);
+      if (!document.execCommand('insertText', false, part)) {
+        method = 'textContent-fallback';
+        el.textContent = full;
+        el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        break;
+      }
+      i += CHUNK;
+    }
+    const now = el.innerText || '';
+    return {
+      ok: now.length >= full.length * 0.95,
+      method,
+      nilagay: full.length,
+      laman_ngayon: now.length,
+      ...(now.length < full.length * 0.95
+        ? { babala: 'Mukhang kulang ang napaste — basahin ulit ang page at subukan muli.' }
+        : {}),
+    };
+  }
+
+  // textarea/input: atomic na ang isang set — walang chunks na kailangan.
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+  Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(el, full);
+  el.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: full, bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+
+  const now = el.value || '';
+  return {
+    ok: now === full,
+    method: 'valueSetter',
+    nilagay: full.length,
+    laman_ngayon: now.length,
+    ...(now !== full ? { babala: 'Hindi tumalab — baka may limitasyon ang field na ito.' } : {}),
+  };
+}
+
+// --- RECORD & REPLAY ---
+// Nire-record ang mga pindot at type ng user sa working tab, bilang mga hakbang na
+// may CSS selector. Kapag nag-navigate ang page, nawawala ang recorder (bagong
+// document) — kaya i-record ang bawat page-load na bahagi nang hiwalay kung kailangan.
+export function recorderStart() {
+  if (window.__kimiRecording) return { ok: true, note: 'nagre-record na' };
+  const steps = (window.__kimiSteps = []);
+
+  const cssPath = (el) => {
+    if (el.id) return '#' + CSS.escape(el.id);
+    const parts = [];
+    while (el && el.nodeType === 1 && parts.length < 6) {
+      let sel = el.tagName.toLowerCase();
+      if (el.name) {
+        parts.unshift(`${sel}[name="${el.name}"]`);
+        break;
+      }
+      const aria = el.getAttribute('aria-label');
+      if (aria) {
+        parts.unshift(`${sel}[aria-label="${aria.slice(0, 40).replace(/"/g, '')}"]`);
+        break;
+      }
+      const parent = el.parentElement;
+      if (parent) {
+        const same = [...parent.children].filter((c) => c.tagName === el.tagName);
+        if (same.length > 1) sel += `:nth-of-type(${same.indexOf(el) + 1})`;
+      }
+      parts.unshift(sel);
+      el = parent;
+    }
+    return parts.join(' > ');
+  };
+
+  const onClick = (e) => {
+    const el = e.target.closest('a,button,input,select,summary,[role=button],[onclick]') || e.target;
+    steps.push({
+      action: 'click',
+      selector: cssPath(el),
+      label: (el.innerText || el.value || el.tagName).replace(/\s+/g, ' ').trim().slice(0, 60),
+    });
+  };
+  const onChange = (e) => {
+    const el = e.target;
+    if (!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    steps.push({ action: 'type', selector: cssPath(el), value: el.value });
+  };
+
+  document.addEventListener('click', onClick, true);
+  document.addEventListener('change', onChange, true);
+  window.__kimiRecording = { onClick, onChange };
+  return { ok: true };
+}
+
+export function recorderStop() {
+  const rec = window.__kimiRecording;
+  if (!rec) return { error: 'Walang recording na tumatakbo.' };
+  document.removeEventListener('click', rec.onClick, true);
+  document.removeEventListener('change', rec.onChange, true);
+  window.__kimiRecording = null;
+  const steps = window.__kimiSteps || [];
+  window.__kimiSteps = [];
+  return { ok: true, steps };
+}
+
+// Isang hakbang ng replay — tinatawag ng tools.js isa-isa nang may pagitan,
+// para makapag-hintay ng navigation sa pagitan ng mga hakbang.
+export function applyStep(step) {
+  const el = document.querySelector(step.selector);
+  if (!el) return { error: `Hindi makita ang ${step.selector} — baka nagbago ang page.` };
+  el.scrollIntoView({ block: 'center' });
+
+  if (step.action === 'click') {
+    el.click();
+    return { ok: true, clicked: step.label || step.selector };
+  }
+  if (step.action === 'type') {
+    el.focus();
+    if (el.tagName === 'SELECT') {
+      const want = String(step.value).toLowerCase();
+      const match =
+        [...el.options].find((o) => o.value.toLowerCase() === want) ||
+        [...el.options].find((o) => o.text.trim().toLowerCase() === want);
+      if (match) el.value = match.value;
+    } else if (el.isContentEditable) {
+      el.textContent = step.value;
+    } else {
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+      Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(el, step.value);
+    }
+    el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return { ok: true };
+  }
+  return { error: `Hindi kilalang hakbang: ${step.action}` };
+}
