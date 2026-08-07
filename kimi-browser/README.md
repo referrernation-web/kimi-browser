@@ -1,5 +1,13 @@
 # Kimi K3 Browser
 
+## Anong bago sa v0.7.1
+
+- **Totoong dropdown na ang model picker** — hindi na datalist na nagtatago ng mga
+  opsyon kapag may laman na ang field. Kita mo na LAHAT ng model ng provider (live
+  mula sa /models), at may "✎ Iba pa…" para sa free-form na model name.
+- **Tapat na ang pagpapakilala** — kapag Qwen (o iba) ang worker, hindi na siya
+  magpapanggap na "Kimi K3". Ang totoong model name ang sinasabi niya.
+
 ## Anong bago sa v0.7.0 (teaching remote + malinaw na lahat)
 
 - **🎓 Teach mode** — captions sa baba ng page habang nagtatrabaho ang agent: anong

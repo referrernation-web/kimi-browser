@@ -277,8 +277,9 @@
           </select>
         </div>
         <div class="row">
-          <input id="model" list="models" placeholder="model (hal. k3)" title="Model" style="width:130px;flex:none" />
-          <datalist id="models"></datalist>
+          <!-- Totoong select, hindi datalist: ang datalist ay nagtatago ng mga opsyon
+               kapag may laman na ang field — hindi makita ng user ang ibang model. -->
+          <select id="model" title="Model" style="width:170px;flex:none"></select>
           <input id="baseurl" placeholder="https://... (base URL ng custom provider)" style="display:none" />
         </div>
         <div class="row" id="auditrow" style="display:none">

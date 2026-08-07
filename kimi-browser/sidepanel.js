@@ -382,13 +382,20 @@ async function refreshModels(p) {
   }
 }
 
-function fillModels(keepValue = false) {
+// Totoong <select> na ang model field: laging kita LAHAT ng opsyon. Ang kasalukuyang
+// value ay laging kasama sa listahan (kahit wala sa /models), at may "✎ Iba pa…" sa
+// dulo para sa free-form na model name.
+function fillModels(keepValue = false, want = '') {
   const list = PROVIDERS[curProvider]?.models || [];
-  $('models').replaceChildren(...list.map((m) => Object.assign(document.createElement('option'), { value: m })));
-  if (!keepValue && list.length && !list.includes($('model').value)) {
-    $('model').value = list[0];
-    chrome.storage.local.set({ model: $('model').value });
-  }
+  const cur = want || (keepValue ? $('model').value : '');
+  const opts = [...new Set([...(cur ? [cur] : []), ...list])];
+  $('model').replaceChildren(
+    ...opts.map((m) => new Option(m, m)),
+    new Option('✎ Iba pa…', '__custom')
+  );
+  const pick = cur || opts[0] || '';
+  if (pick) $('model').value = pick;
+  if (!keepValue && pick) chrome.storage.local.set({ model: pick });
 }
 
 // Ang auditor ay may sariling provider at model — at ginagamit ang key na naka-save
@@ -418,10 +425,9 @@ chrome.storage.local
     $('provider').value = curProvider;
     $('key').value = apiKeys[curProvider] || '';
     $('key').placeholder = PROVIDERS[curProvider].keyHint;
-    $('model').value = d.model || 'k3';
     $('baseurl').value = d.customUrl || '';
     $('baseurl').style.display = curProvider === 'custom' ? '' : 'none';
-    fillModels(true);
+    fillModels(true, d.model || 'k3');
     $('mode').value = d.mode || 'adaptive';
     ttsOn = !!d.tts;
     soundOn = d.sound !== false;
@@ -569,7 +575,17 @@ $('testkey').onclick = async () => {
   setTimeout(() => ($('testkey').textContent = 'I-test'), 4000);
 };
 $('model').onchange = () => {
-  chrome.storage.local.set({ model: $('model').value.trim() });
+  if ($('model').value === '__custom') {
+    // Free-form pa rin kapag kailangan — hal. bagong model na wala pa sa /models.
+    const m = (window.prompt('I-type ang model name:') || '').trim();
+    if (m) {
+      $('model').add(new Option(m, m), 0);
+      $('model').value = m;
+    } else {
+      fillModels(true, PROVIDERS[curProvider]?.models?.[0] || '');
+    }
+  }
+  chrome.storage.local.set({ model: $('model').value });
   syncChip();
 };
 $('baseurl').onchange = () => chrome.storage.local.set({ customUrl: $('baseurl').value.trim() });

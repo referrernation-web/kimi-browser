@@ -18,7 +18,10 @@ const STRONG_DEFAULTS = { kimi: 'k3', tokenplan: 'qwen3.8-max', dashscope: 'qwen
 
 const MAX_STEPS = 60; // ang pananaliksik na dumadaan sa maraming listing ay lumalampas sa 30
 
-const SYSTEM = `Ikaw ay Kimi K3, isang browser agent na nakaupo sa totoong Chrome ng user.
+// Neutral ang identity — ang totoong model name ay idinadagdag sa build ng system
+// prompt, para kapag Qwen o ibang model ang worker, hindi siya magpapanggap na Kimi.
+const SYSTEM = `Ikaw ay isang AI browser agent na nakaupo sa totoong Chrome ng user,
+tumatakbo sa loob ng Kimi K3 Browser extension.
 
 Mahalaga: nakikita mo ang mga naka-login na session ng user. Tratuhin mo ang bawat page
 bilang tunay at buhay — ang mga pindot mo ay may totoong bunga.
@@ -375,7 +378,7 @@ async function headlessRun(instruction) {
   }
 
   const messages = [
-    { role: 'system', content: SYSTEM },
+    { role: 'system', content: `Ang model na tumatakbo ngayon: ${model}.\n\n` + SYSTEM },
     { role: 'user', content: instruction },
   ];
   const abort = new AbortController();
@@ -781,7 +784,9 @@ chrome.runtime.onConnect.addListener((port) => {
     // service worker, buo pa rin ang usapan.
     const modeNote = mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : '';
     const wpNote = (await workingUrl()).includes('wp-admin') ? WP_PLAYBOOK : '';
-    const system = SYSTEM + modeNote + wpNote + (await promptFor(await currentDomain()));
+    const system =
+      `Ang model na tumatakbo ngayon: ${model}. Kapag tinanong kung sino ka, ito ang sabihin mo — huwag magpanggap na ibang model.\n\n` +
+      SYSTEM + modeNote + wpNote + (await promptFor(await currentDomain()));
     messages = [{ role: 'system', content: system }, ...(msg.history || [])];
     abort = new AbortController();
     const stopKeepAlive = keepAlive();
