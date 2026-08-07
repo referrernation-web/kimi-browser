@@ -172,10 +172,16 @@
         </svg>
         <span id="statuslight" title="Tumatakbo ang agent"></span>
         <input id="key" type="password" placeholder="Kimi API key (sk-kimi-...)" />
-        <select id="model">
-          <option value="k3">K3 (1M)</option>
-          <option value="k3-256k">K3 (256k)</option>
+        <select id="provider" title="Provider">
+          <option value="kimi">Kimi</option>
+          <option value="dashscope">Alibaba Qwen</option>
+          <option value="custom">Custom</option>
         </select>
+      </div>
+      <div class="row">
+        <input id="model" list="models" placeholder="model (hal. k3)" title="Model" style="width:130px;flex:none" />
+        <datalist id="models"></datalist>
+        <input id="baseurl" placeholder="https://... (base URL ng custom provider)" style="display:none" />
       </div>
       <div class="row">
         <select id="mode">
