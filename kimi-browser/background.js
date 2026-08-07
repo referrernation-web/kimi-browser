@@ -139,9 +139,9 @@ function keepAlive() {
 }
 
 // --- MODEL ROUTING ---
-// Mabilis/murang model ang default ng buong loop; lumilipat sa malakas lang kapag
-// (a) dalawang sunod na step ang may error, o (b) lalampas sa context ng maliit.
-// Ang paglilipat ay nangyayari sa susunod na tawag — walang nasisirang kasaysayan.
+// Ang PINILI ng user sa dropdown ang default ng loop. Kapag maliit ang model
+// (k3-256k), lumilipat sa malakas (k3) kapag (a) dalawang sunod na step ang may
+// error, o (b) lalampas sa context ng maliit. Sticky sa loob ng gawain.
 const CHEAP_MODEL = 'k3-256k';
 const STRONG_MODEL = 'k3';
 
@@ -791,7 +791,10 @@ chrome.runtime.onConnect.addListener((port) => {
     }
 
     let failStreak = 0; // sunod na step na may error — para sa model routing
-    let routedModel = CHEAP_MODEL; // mabilis/mura ang default ng buong loop
+    // Ang PINILI ng user sa dropdown ang default ng loop — iginalang. Ang router ay
+    // umaakyat lang (k3-256k -> k3) kapag maliit ang model at kailangan ng tulong;
+    // kapag k3 na ang pinili mo, k3 talaga ang tatakbo buong gawain.
+    let routedModel = model;
     let escalatedOnce = false;
 
     try {
