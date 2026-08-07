@@ -3,6 +3,25 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.9.0 (solid na tandem ang worker at second brain)
+
+- **♻ Auto-fix** — dati, nahuhuli ng auditor ang masamang sagot pero IKAW pa ang
+  pipindot ng "ipasa ang puna". Ngayon, kapag bumagsak sa **4/10 pababa**, kusang
+  ibinabalik sa worker at ipinapasulat muli nang isang beses — ang naitama na ang
+  makikita mo, hindi ang sablay.
+- **Nakikita na ng auditor ang TALAGANG ginawa** — kasama na ang tool trail (anong
+  na-navigate, na-click, nabasa, at kung ano ang nabigo). Kaya niyang sabihin ngayon
+  na "sinabi mong binuksan mo pero wala sa listahan" — hindi na prosa lang ang husga.
+- **Sukat at katapatan sa worker** — bagong tuntunin sa system prompt: ang "hello" ay
+  sinasagot ng pagbati, hindi ng buong pagsusuri; at bawal ang pag-imbento ng nakaraang
+  gawaing hindi naman nangyari.
+- **Kalibradong score at nakapirming wika sa auditor** — may malinaw nang batayan ang
+  1-10 (para hindi arbitrary ang boto), at bawal nang dumulas ang ibang wika.
+- **★ Average score kada model sa 📊** — makikita mo na kung aling worker model ang
+  talagang mahusay ayon sa second brain, may datos: berde (≥7), dilaw (5-6), pula (<5).
+- Default na dalawang auditor mula sa magkaibang pamilya (`qwen3.8-max, glm-5.2`) —
+  tunay na consensus, hindi ugali ng iisang model.
+
 ## Anong bago sa v0.8.1
 
 - **Dropdown na rin ang second brain** — may picker na sa auditor: kita mo lahat ng

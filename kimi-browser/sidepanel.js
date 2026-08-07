@@ -468,7 +468,7 @@ chrome.storage.local
     $('audit').classList.toggle('on', auditOn);
     $('auditrow').style.display = $('auditrow2').style.display = auditOn ? '' : 'none';
     $('auditprovider').value = d.auditProvider || 'tokenplan';
-    $('auditmodel').value = d.auditModel || 'qwen3.8-max';
+    $('auditmodel').value = d.auditModel || 'qwen3.8-max, glm-5.2';
     fillAModels(true);
     // Puti ang default — dark lang kapag pinili ng user
     document.body.dataset.theme = d.theme || 'light';
@@ -812,6 +812,7 @@ const SAYS = {
   _escalate: (a) => `Lumipat sa mas malakas na model — ${a.why}`,
   _audit: (a) => `🗳 Sinusuri nina ${a.model} ang sagot…`,
   _midcheck: (a) => `🧐 Second brain: ${a.note}`,
+  _autofix: (a) => `♻ Bumagsak sa ${a.avg}/10 — ipinapasulat muli ang sagot…`,
 };
 const hostOf = (u) => {
   try {
@@ -1255,12 +1256,17 @@ function stopClock() {
 async function trackUsage(m) {
   if (!m.model) return;
   const { usage = {} } = await chrome.storage.local.get('usage');
-  const u = (usage[m.model] ||= { calls: 0, runs: 0, seconds: 0, tin: 0, tout: 0, role: '' });
+  const u = (usage[m.model] ||= { calls: 0, runs: 0, seconds: 0, tin: 0, tout: 0, role: '', scoreSum: 0, scoreN: 0 });
   u.calls += m.calls || 0;
   u.runs += m.runs || 0;
   u.seconds += m.seconds || 0;
   u.tin += m.in || 0;
   u.tout += m.out || 0;
+  // Ang boto ng second brain — dito nagiging masusukat kung aling model ang mahusay.
+  if (typeof m.score === 'number') {
+    u.scoreSum = (u.scoreSum || 0) + m.score;
+    u.scoreN = (u.scoreN || 0) + 1;
+  }
   if (m.role) u.role = m.role;
   await chrome.storage.local.set({ usage });
 }
@@ -1324,6 +1330,16 @@ $('stats').onclick = async () => {
         r.className = 'role ' + (u.role === 'auditor' ? 'a' : 'w');
         r.textContent = u.role === 'auditor' ? 'AUDITOR' : 'WORKER';
         mdl.append(r);
+      }
+      // Ang average score ng second brain — ang pinakamahalagang numero kapag
+      // pumipili ka ng model, kaya inuuna natin ito sa hilera.
+      if (u.scoreN) {
+        const avg = u.scoreSum / u.scoreN;
+        const s = document.createElement('span');
+        s.className = 'score ' + (avg >= 7 ? 'good' : avg >= 5 ? 'mid' : 'bad');
+        s.textContent = `★ ${avg.toFixed(1)}`;
+        s.title = `Average na boto ng second brain sa ${u.scoreN} sagot`;
+        mdl.append(s);
       }
       const nums = document.createElement('span');
       nums.className = 'nums';
