@@ -2,7 +2,10 @@ import assert from 'node:assert';
 // Ginagaya ang tunay na pag-uugali ng Chrome: sumasabog ito sa `undefined` sa args.
 const seen = [];
 globalThis.chrome = {
-  tabs: { query: async () => [{ id: 1, url: 'https://x.com' }] },
+  tabs: {
+    query: async () => [{ id: 1, url: 'https://x.com' }],
+    get: async (id) => ({ id, url: 'https://x.com', groupId: null }),
+  },
   scripting: {
     executeScript: async ({ args }) => {
       args.forEach((a, i) => {
@@ -13,7 +16,8 @@ globalThis.chrome = {
     },
   },
 };
-const { runTool } = await import('./tools.js');
+const { runTool, setScope } = await import('./tools.js');
+setScope(null, 1); // may scope group na ngayon ang tools.js — ituro sa mock tab
 
 // Ito ang eksaktong tawag na bumagsak: scroll na walang `amount`.
 await runTool('scroll', { direction: 'down' });

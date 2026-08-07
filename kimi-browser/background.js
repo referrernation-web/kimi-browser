@@ -7,6 +7,9 @@ import { promptFor } from './memory.js';
 // kahit anong OpenAI-compatible na serbisyo (OpenRouter, Together, lokal na server, atbp.).
 const PROVIDER_URLS = {
   kimi: 'https://api.kimi.com/coding/v1/chat/completions',
+  // Groq: pinakamabilis na inference ngayon — pareho ang key na ginagamit ng Whisper
+  // capture, kaya kung naka-setup na ang 🎧 mo, gumagana na agad ito bilang worker.
+  groq: 'https://api.groq.com/openai/v1/chat/completions',
   tokenplan: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
   dashscope: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
 };
@@ -24,6 +27,12 @@ MAY SARILI KANG SCOPE. Kontrolado mo LANG ang purple na tab group na "K3". Ang i
 tabs ng user ay hindi mo makikita, malilipat, o masasara — kahit subukan mo, hahadlangan
 ka ng Chrome mismo. Kapag kailangan mo ng bagong tab, gumamit ng new_tab at awtomatiko
 itong papasok sa group mo.
+
+PLANO MUNA: kapag ang gawain ay may tatlo o higit pang hakbang, magsimula sa maikling
+numerado na plano (3-6 linya) bago ang unang tool call — para may direksyon ka at
+nakikita ng user kung saan ka papunta. Sundan ang plano. Kapag dalawang beses nabigo
+ang parehong hakbang, huwag ipagpilitan — sabihin sa isang linya ang bagong ruta bago
+magpatuloy. Sa gawaing isa o dalawang hakbang lang, huwag nang magplano — kumilos agad.
 
 Paraan ng pagtatrabaho:
 - Tumawag ng read_page BAGO ang unang click o type. Pagkatapos niyan, basahin mo MULI
@@ -266,14 +275,19 @@ mula sa caption mismo, at magmungkahi batay doon.`;
 async function getSettings() {
   const d = await chrome.storage.local.get([
     'apiKey', 'apiKeys', 'provider', 'customUrl', 'model', 'strongModel', 'mode', 'autopilot',
-    'audit', 'auditProvider', 'auditModel',
+    'audit', 'auditProvider', 'auditModel', 'groqKey',
   ]);
   const provider = d.provider || 'kimi';
   const keys = d.apiKeys || {};
-  const apiKey = keys[provider] || (provider === 'kimi' ? d.apiKey || '' : '');
+  // Fallback ng key: ang lumang single apiKey ay kay Kimi; ang groqKey (ginagamit na
+  // ng Whisper capture) ay doble-gamit na rin bilang chat key ng Groq.
+  const keyFor = (p) =>
+    keys[p] || (p === 'kimi' ? d.apiKey || '' : p === 'groq' ? d.groqKey || '' : '');
+  const apiKey = keyFor(provider);
   const baseUrl =
     provider === 'custom' ? (d.customUrl || '') : PROVIDER_URLS[provider] || PROVIDER_URLS.kimi;
-  const model = d.model || 'k3';
+  // Default model ayon sa provider — hindi 'k3' kapag hindi naman Kimi ang napili.
+  const model = d.model || STRONG_DEFAULTS[provider] || 'k3';
 
   // Ang AUDITOR: ikalawang AI na nagsusuri ng trabaho ng worker — ibang provider,
   // ibang key, ibang model. Pwede silang pagsabayin dahil hiwalay ang tawag nito.
@@ -281,7 +295,7 @@ async function getSettings() {
   const auditModel = d.auditModel || 'qwen3.8-max';
   const auditUrl =
     auditProvider === 'custom' ? (d.customUrl || '') : PROVIDER_URLS[auditProvider] || '';
-  const auditKey = keys[auditProvider] || (auditProvider === 'kimi' ? d.apiKey || '' : '');
+  const auditKey = keyFor(auditProvider);
 
   return {
     apiKey,
@@ -849,8 +863,8 @@ chrome.runtime.onConnect.addListener((port) => {
                   'Tapos na ba ang LAHAT ng hinihingi ko sa gawaing ito? Kung may natitira pang malinaw na bahagi, tumawag ng continue_task. Kung tapos na o kung kailangan na ng desisyon ko, huwag — sagutin mo lang ako.',
               },
             ],
-            signal: abort.signal,
           }),
+          signal: abort.signal,
         });
         if (!res.ok) return null;
         const m = (await res.json()).choices?.[0]?.message;
@@ -917,6 +931,47 @@ chrome.runtime.onConnect.addListener((port) => {
         const avg = Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
         send({ type: 'vote', avg, pass: avg >= 7, n: scores.length });
       }
+    }
+
+    // GABAY SA GITNA NG GAWAIN: hindi na hinihintay ang dulo bago mag-check.
+    // Kada 6 na hakbang, sinisilip ng second brain ang direksyon — mas mabuting
+    // tama sa unang beses kaysa paulit-ulit na mali. Isang linya lang ang sagot:
+    // "TULOY" (walang gagawin) o "IWASTO: ..." (ipinapasok sa usapan ng worker).
+    async function midCheck(step) {
+      if (!audit || !auditKey || !auditUrl) return;
+      const checkModel = String(auditModel).split(',')[0].trim();
+      if (!checkModel) return;
+      const firstUser = (
+        messages.find((m) => m.role === 'user' && typeof m.content === 'string')?.content || ''
+      ).slice(0, 500);
+      const tail = JSON.stringify(messages.slice(-8)).slice(0, 6000);
+      try {
+        const res = await fetch(auditUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auditKey}` },
+          body: JSON.stringify({
+            model: checkModel,
+            max_tokens: 150,
+            messages: [
+              {
+                role: 'user',
+                content:
+                  `Ikaw ang second brain ng isang browser agent. UTOS NG USER:\n${firstUser}\n\n` +
+                  `HULING MGA HAKBANG (nasa hakbang ${step} na):\n${tail}\n\n` +
+                  'Tama ba ang direksyon niya? Sumagot sa ISANG linya lang: "TULOY" kung tama, o ' +
+                  '"IWASTO: <maikling dahilan + ang tamang susunod na hakbang>" kung mali, paikot-ikot, ' +
+                  'o may mas mabilis na ruta.',
+              },
+            ],
+          }),
+          signal: abort.signal,
+        });
+        if (!res.ok) return;
+        const line = ((await res.json()).choices?.[0]?.message?.content || '').trim();
+        if (!/^IWASTO/i.test(line)) return; // TULOY = tahimik, walang ingay sa worker
+        send({ type: 'tool', name: '_midcheck', args: { note: line.slice(0, 120) } });
+        record({ role: 'user', content: `[SECOND BRAIN — gabay sa gitna ng gawain] ${line.slice(0, 300)}` });
+      } catch {} // ang gabay ay hindi dapat magpabagsak ng gawain
     }
 
     let failStreak = 0; // sunod na step na may error — para sa model routing
@@ -1110,6 +1165,9 @@ chrome.runtime.onConnect.addListener((port) => {
             ],
           });
         }
+
+        // Ang second brain ay sumisilip kada 6 na hakbang habang tumatakbo.
+        if (step > 0 && step % 6 === 0) await midCheck(step);
       }
       // Ang paglampas sa hangganan ay hindi dapat magbura ng trabaho. Isang huling tawag,
       // walang tools, para sabihin niya ang nakalap na niya bago tayo tumigil.

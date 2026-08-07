@@ -282,6 +282,11 @@ const PROVIDERS = {
     keyHint: 'Kimi API key (sk-kimi-...)',
     models: ['k3', 'k3-256k'],
   },
+  groq: {
+    keyHint: 'Groq API key (gsk_...)',
+    // Fallback lang ito — ang totoong listahan ay kinukuha nang live sa /models.
+    models: ['moonshotai/kimi-k2-instruct', 'llama-3.3-70b-versatile'],
+  },
   tokenplan: {
     keyHint: 'Token Plan API key (sk-...)',
     models: [
@@ -301,7 +306,33 @@ const PROVIDERS = {
   custom: { keyHint: 'API key', models: [] },
 };
 let curProvider = 'kimi';
-let apiKeys = {}; // { kimi: '...', tokenplan: '...', dashscope: '...', custom: '...' }
+let apiKeys = {}; // { kimi: '...', groq: '...', tokenplan: '...', dashscope: '...', custom: '...' }
+
+// --- LIVE MODEL LIST: ang totoong /models ng provider, hindi hardcoded na listahan ---
+// Ang mga model name ay nagbabago kada buwan; ang /models endpoint ang katotohanan.
+// Ang OpenAI-compatible na provider ay may GET /models sa tabi ng /chat/completions.
+const CHAT_URLS = {
+  kimi: 'https://api.kimi.com/coding/v1/chat/completions',
+  groq: 'https://api.groq.com/openai/v1/chat/completions',
+  tokenplan: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions',
+  dashscope: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+};
+
+async function refreshModels(p) {
+  const chat = p === 'custom' ? $('baseurl').value.trim() : CHAT_URLS[p];
+  const key = apiKeys[p] || '';
+  const url = (chat || '').replace(/\/chat\/completions\/?$/, '/models');
+  if (!key || !url || url === chat) return;
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+    if (!res.ok) return; // hindi lahat ng provider ay may /models — hayaan ang fallback
+    const ids = (((await res.json()).data) || []).map((m) => m.id).filter(Boolean).sort();
+    if (!ids.length) return;
+    (PROVIDERS[p] ||= { keyHint: 'API key', models: [] }).models = ids;
+    if (p === curProvider) fillModels(true);
+    if (p === $('auditprovider').value) fillAModels(true);
+  } catch {} // ang suggestions ay palamuti — hindi dapat makasira
+}
 
 function fillModels(keepValue = false) {
   const list = PROVIDERS[curProvider]?.models || [];
@@ -328,11 +359,13 @@ function fillAModels(keepValue = false) {
 
 chrome.storage.local
   .get(['apiKey', 'apiKeys', 'provider', 'model', 'customUrl', 'mode', 'tts', 'sound', 'autopilot', 'theme',
-        'audit', 'auditProvider', 'auditModel'])
+        'audit', 'auditProvider', 'auditModel', 'groqKey'])
   .then((d) => {
     apiKeys = d.apiKeys || {};
-    // Migration: ang lumang single apiKey ay para sa Kimi.
+    // Migration: ang lumang single apiKey ay para sa Kimi; ang groqKey ng Whisper
+    // capture ay doble-gamit bilang chat key ng Groq.
     if (d.apiKey && !apiKeys.kimi) apiKeys.kimi = d.apiKey;
+    if (d.groqKey && !apiKeys.groq) apiKeys.groq = d.groqKey;
     curProvider = d.provider || 'kimi';
     $('provider').value = curProvider;
     $('key').value = apiKeys[curProvider] || '';
@@ -366,6 +399,11 @@ chrome.storage.local
 $('gear').onclick = () => {
   const open = $('settings').style.display === 'none';
   $('settings').style.display = open ? 'grid' : 'none';
+  if (open) {
+    // I-refresh ang totoong model list ng worker at auditor habang bukas ang settings.
+    refreshModels(curProvider);
+    if ($('auditprovider').value !== curProvider) refreshModels($('auditprovider').value);
+  }
 };
 $('menubtn').onclick = (e) => {
   e.stopPropagation();
@@ -392,11 +430,13 @@ $('provider').onchange = () => {
   $('key').placeholder = PROVIDERS[curProvider].keyHint;
   $('baseurl').style.display = curProvider === 'custom' ? '' : 'none';
   fillModels(); // kapag lumipat ng provider, i-suggest ang unang model nito
+  refreshModels(curProvider); // tapos palitan ng totoong listahan mula sa /models
   syncChip();
 };
 $('key').onchange = () => {
   apiKeys[curProvider] = $('key').value.trim();
   chrome.storage.local.set({ apiKeys });
+  refreshModels(curProvider); // bagong key — baka bukas na ang /models
 };
 $('model').onchange = () => {
   chrome.storage.local.set({ model: $('model').value.trim() });
@@ -495,6 +535,7 @@ const SAYS = {
   _autopilot: (a) => `🛩 Nagpapatuloy (${a.chains}/5): ${String(a.next).slice(0, 60)}`,
   _escalate: (a) => `Lumipat sa mas malakas na model — ${a.why}`,
   _audit: (a) => `🗳 Sinusuri nina ${a.model} ang sagot…`,
+  _midcheck: (a) => `🧐 Second brain: ${a.note}`,
 };
 const hostOf = (u) => {
   try {
@@ -1375,6 +1416,7 @@ $('audit').onclick = () => {
 $('auditprovider').onchange = () => {
   chrome.storage.local.set({ auditProvider: $('auditprovider').value });
   fillAModels();
+  refreshModels($('auditprovider').value);
 };
 $('auditmodel').onchange = () =>
   chrome.storage.local.set({ auditModel: $('auditmodel').value.trim() });

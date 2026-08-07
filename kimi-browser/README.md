@@ -3,6 +3,22 @@
 Sidebar agent sa loob ng totoong Chrome mo. Nakikita niya ang mga naka-login mong session —
 yan ang dahilan kung bakit extension ito at hindi remote browser.
 
+## Anong bago sa v0.6.1
+
+- **Second brain sa GITNA ng gawain** — hindi na lang sa dulo nag-a-audit. Kada 6 na
+  hakbang, sinisilip ng auditor ang direksyon ng worker: kung tama, tahimik lang;
+  kung mali o paikot-ikot, isang "IWASTO" na linya ang ipinapasok sa worker para
+  maituwid agad — mas mabuting tama sa unang beses kaysa paulit-ulit na mali.
+- **Groq bilang provider** — piliin ang "Groq (mabilis)" sa settings para tumakbo ang
+  worker o auditor sa pinakamabilis na inference ngayon. Kung naka-setup na ang Groq
+  key mo para sa 🎧 (Whisper), gagana na agad ito — parehong key.
+- **Live model list** — hindi na hardcoded ang mga model suggestion. Kinukuha na
+  nang live sa `/models` endpoint ng provider, kaya laging totoo at sariwa ang listahan
+  kahit magbago ang mga pangalan ng model.
+- **Plano muna bago kumilos** — sa mga gawaing 3+ hakbang, maglalatag muna ang agent
+  ng maikling numerado na plano bago ang unang aksyon, at magre-replan kapag dalawang
+  beses nabigo ang parehong hakbang — hindi na ipagpipilitan ang ayaw gumana.
+
 ## Anong bago sa v0.6.0
 
 - **Malinis na UI** — ang API key/provider/model/auditor settings ay nasa likod na ng
