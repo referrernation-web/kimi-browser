@@ -231,14 +231,13 @@ async function stopCapture() {
 }
 
 // --- SCOPE: isang purple tab group bawat session ---
-// Sa pagsisimula ng run, ang kasalukuyang tab ay ina-adopt sa group ng session na iyon.
-// Mula doon, lahat ng new_tab ay papasok din sa group — at ang lahat ng tool ay sa
-// loob lang ng group kikilos. Ang mga tab ng user ay hindi na aabot.
+// Sa UNANG setup lang ina-adopt ang kasalukuyang tab (baka yun ang pinag-uusapan).
+// Pagkatapos niyan, HINDI na namin gagalawin ang tab ng user — mananatili ang agent
+// sa group niya kahit magpalipat-lipat ka ng tab, tulad ng background workflow ng
+// Claude. Kung gusto ng user na makita ng agent ang isang tab, ida-drag niya ito
+// papasok sa purple group — sadyang ganito rin ang modelo ng Claude.
 async function ensureScope(sessionId, title) {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (!tab || /^(chrome|edge|about|chrome-extension):/.test(tab.url || '')) return;
-
     const store = await chrome.storage.local.get('tabGroups');
     const groups = store.tabGroups || {};
     let gid = groups[sessionId];
@@ -253,6 +252,8 @@ async function ensureScope(sessionId, title) {
     }
 
     if (gid == null) {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tab || /^(chrome|edge|about|chrome-extension):/.test(tab.url || '')) return;
       gid = await chrome.tabs.group({ tabIds: [tab.id] });
       await chrome.tabGroups.update(gid, {
         title: `K3 · ${(title || 'usapan').slice(0, 20)}`,
@@ -260,13 +261,35 @@ async function ensureScope(sessionId, title) {
       });
       groups[sessionId] = gid;
       await chrome.storage.local.set({ tabGroups: groups });
-    } else if (tab.groupId !== gid) {
-      await chrome.tabs.group({ tabIds: [tab.id], groupId: gid });
+      setScope(gid, tab.id);
+    } else {
+      // May group na — i-scope lang, huwag nang i-adopt o iharap ang tab ng user.
+      setScope(gid);
     }
-
-    setScope(gid, tab.id);
   } catch {} // ang scope ay hindi dapat magpahinto ng run
 }
+
+// --- NOTIFICATIONS: tulad ng kay Claude — alert kapag kailangan ka o tapos na ---
+// Mahalaga ito ngayong hindi na sinusunod ng agent ang focus mo: kung nasa ibang
+// tab ka, dito mo malalaman na may hinihintay siya o natapos na niya.
+function notify(title, message) {
+  try {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon-128.png',
+      title,
+      message: String(message || '').slice(0, 160),
+    });
+  } catch {}
+}
+chrome.notifications?.onClicked?.addListener((id) => {
+  chrome.notifications.clear(id);
+  chrome.windows.getLastFocused((w) => {
+    try {
+      chrome.sidePanel.open({ windowId: w.id });
+    } catch {}
+  });
+});
 
 // --- STREAMING: binabasa ang SSE habang dumadating, hindi hintay nang buo ---
 // Ibinabalik ang buong assembled reply (para sa kasaysayan) habang naipapadala na
@@ -538,6 +561,7 @@ chrome.runtime.onConnect.addListener((port) => {
             send({ type: 'tool', name, args: { title: args.title, count: n } });
           } else if (name === 'ask_user') {
             // Hindi ito dumadaan sa browser — ang user mismo ang sumasagot.
+            notify('Tanong ni K3', args.question);
             const answer = await prompt({
               type: 'question',
               question: args.question,
@@ -546,6 +570,7 @@ chrome.runtime.onConnect.addListener((port) => {
             result = { answer };
           } else {
             send({ type: 'tool', name, args });
+            if (needsApproval(mode, name)) notify(`Pahintulot: ${name}`, JSON.stringify(args));
             if (needsApproval(mode, name) && !(await prompt({ type: 'confirm', tool: name, args }))) {
               result = { error: 'Tinanggihan ng user ang hakbang na ito.' };
             } else {
@@ -620,6 +645,7 @@ chrome.runtime.onConnect.addListener((port) => {
       stopKeepAlive();
       await setOverlay(false);
       send({ type: 'done' }); // ang kasaysayan ay naipadala na isa-isa
+      notify('Kimi K3', 'Tapos na ang gawain — buksan ang panel para makita ang resulta.');
       abort = null;
       run = null;
     }
