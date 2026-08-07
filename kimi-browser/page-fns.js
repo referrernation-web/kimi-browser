@@ -155,14 +155,16 @@ function sendEnter(el) {
   el.form?.requestSubmit?.();
 }
 
-// Nakikitang palatandaan sa page: banner sa itaas at cursor na gumagalaw papunta sa
-// bawat element bago ito pindutin. Nasa shadow DOM para hindi ito maabot ng CSS ng site,
-// at pointer-events:none para hindi nito mahadlangan ang totoong pag-click.
+// Nakikitang palatandaan sa page: may GLOWING violet frame (parang magic), banner sa
+// itaas na may TIMER at LIVE STATUS ng ginagawa ng agent, at cursor na gumagalaw
+// papunta sa bawat element bago ito pindutin. Nasa shadow DOM para hindi maabot ng
+// CSS ng site, at pointer-events:none para hindi mahadlangan ang totoong pag-click.
 export function overlay(action, ref) {
   const ID = '__kimi_overlay';
   let host = document.getElementById(ID);
 
   if (action === 'off') {
+    if (host?.__tm) clearInterval(host.__tm);
     host?.remove();
     return { ok: true };
   }
@@ -174,7 +176,14 @@ export function overlay(action, ref) {
     const sh = host.attachShadow({ mode: 'open' });
     sh.innerHTML = `
       <style>
-        .frame { position:fixed; inset:0; border:2px solid #7c5cff; border-radius:3px; }
+        .frame {
+          position:fixed; inset:0; border:2px solid #7c5cff; border-radius:3px;
+          animation:glow 1.8s ease-in-out infinite;
+        }
+        @keyframes glow {
+          0%, 100% { box-shadow: 0 0 4px #7c5cff22, inset 0 0 4px #7c5cff11; }
+          50%      { box-shadow: 0 0 20px #7c5cffaa, inset 0 0 14px #7c5cff44; }
+        }
         .bar {
           position:fixed; top:0; left:50%; transform:translateX(-50%);
           background:#7c5cff; color:#fff; font:600 12px/1 ui-sans-serif,system-ui,sans-serif;
@@ -184,6 +193,8 @@ export function overlay(action, ref) {
         }
         .dot { width:7px; height:7px; border-radius:50%; background:#fff; animation:pulse 1.4s infinite; }
         @keyframes pulse { 50% { opacity:.25; } }
+        .st { opacity:.9; font-weight:500; }
+        .tm { opacity:.8; font-variant-numeric:tabular-nums; }
         .cur {
           position:fixed; width:22px; height:22px; margin:-11px 0 0 -11px;
           border:2px solid #7c5cff; border-radius:50%; background:#7c5cff33;
@@ -197,12 +208,39 @@ export function overlay(action, ref) {
         }
         .ring.on { opacity:1; animation:flash .6s ease-out; }
         @keyframes flash { from { box-shadow:0 0 0 0 #7c5cff88; } to { box-shadow:0 0 0 14px #7c5cff00; } }
+        .spark {
+          position:fixed; bottom:10px; width:5px; height:5px; border-radius:50%;
+          background:#c9b8ff; animation:sparkle 1.7s ease-in infinite;
+        }
+        @keyframes sparkle {
+          0% { opacity:0; transform:translateY(0) scale(.6); }
+          30% { opacity:1; }
+          100% { opacity:0; transform:translateY(-16px) scale(1); }
+        }
       </style>
       <div class="frame"></div>
-      <div class="bar"><span class="dot"></span>Kimi K3 ang kumokontrol sa tab na ito</div>
+      <div class="bar"><span class="dot"></span><b>Kimi K3</b><span class="st"></span><span class="tm"></span></div>
       <div class="cur"></div>
-      <div class="ring"></div>`;
+      <div class="ring"></div>
+      <div class="spark" style="left:12%"></div>
+      <div class="spark" style="left:50%;animation-delay:.55s"></div>
+      <div class="spark" style="left:86%;animation-delay:1.1s"></div>`;
     document.documentElement.append(host);
+
+    // Ang timer sa banner — nagsisimula kapag pumasok ang agent, humihinto kapag tapos.
+    const t0 = Date.now();
+    const tm = sh.querySelector('.tm');
+    host.__tm = setInterval(() => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      tm.textContent = ` ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    }, 1000);
+  }
+
+  if (action === 'status') {
+    // Live na status ng ginagawa — hal. "Pinipindot ang ref_12" o "Binabasa ang page".
+    const st = host.shadowRoot.querySelector('.st');
+    st.textContent = ref ? `· ${ref}` : '';
+    return { ok: true };
   }
 
   if (action === 'point') {
