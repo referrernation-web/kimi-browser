@@ -437,6 +437,14 @@ export async function setOverlay(on) {
   } catch {}
 }
 
+// Ang nakikitang status sa page banner — para makita ng user kung ano ang ginagawa
+// ng agent NGAYON, kasama ang oras, habang kumikilos ito sa tab.
+export async function setStatus(text) {
+  try {
+    await inPage(overlay, ['status', String(text).slice(0, 60)]);
+  } catch {}
+}
+
 // Kung may bukas na whisper.cpp stream tab, siya ang tenga natin para sa boses na walang
 // caption. Ibinabalik lang natin ang BAGONG bahagi — kung hindi, paulit-ulit na babasahin
 // ng model ang parehong pangungusap at lalaki ang konteksto nang walang saysay.
