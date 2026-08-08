@@ -310,6 +310,27 @@ export function compactDocArgs(messages, keepLast = 1) {
 // Ang TOOL TRAIL: kung ano ang TALAGANG ginawa ng worker, hindi lang ang sinabi niya.
 // Kung wala nito, prosa lang ang kayang husgahan ng auditor — hindi niya masasabing
 // "hindi mo naman talaga binuksan ang page na yan".
+// Ang HULING tunay na utos ng user. Mukhang maliit, pero ang dating `.find()` ay
+// nagbabalik ng KAUNA-UNAHANG mensahe ng buong usapan — at iyon ang ibinibigay sa
+// auditor bilang "ang utos ng user".
+//
+// Nakita ito sa totoong transcript: matapos humingi ng buong research, hinusgahan ng
+// auditor ang sagot laban sa "nakikita mo ba yung project nayan?" — isang oo-o-hindi
+// na tanong mula tatlong turn ang nakalipas. Binagsak nito ang tamang sagot sa 6/10
+// at nagpasulat muli nang walang saysay.
+//
+// Ang mga paalala ng sistema ay role:'user' din, kaya inaalis sila rito — kung hindi,
+// ang "[SISTEMA] Tatlong beses nang bumagsak ang…" ang magiging sukatan ng sagot.
+export function latestUserTask(messages) {
+  for (let i = (messages?.length || 0) - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== 'user' || typeof m.content !== 'string') continue;
+    if (m.content.startsWith('[SISTEMA]')) continue;
+    return m.content;
+  }
+  return '';
+}
+
 export function toolTrail(messages, limit = 24) {
   const lines = [];
   for (const m of messages) {
@@ -648,6 +669,10 @@ async function getSettings() {
     provider,
     model,
     strongModel: d.strongModel || STRONG_DEFAULTS[provider] || model,
+    // Hangganan ng pag-iisip, sa mga provider lang na tumatanggap nito (pamilyang
+    // Qwen). Tinatanggihan ito ng Kimi at Groq nang hindi kilala, kaya hindi
+    // ipinapadala doon. 0 = walang hangganan (ang dating ugali).
+    think: provider === 'tokenplan' || provider === 'dashscope' ? (d.think ?? 4000) : 0,
     mode: d.mode || 'adaptive',
     autopilot: !!d.autopilot,
     teach: !!d.teach,
@@ -942,8 +967,20 @@ async function ensureScope(sessionId, title) {
     }
 
     if (gid == null) {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (!tab || /^(chrome|edge|about|chrome-extension):/.test(tab.url || '')) return;
+      let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      // Kapag ang bukas na tab ay chrome://, about:, o ang new-tab page, hindi ito
+      // maigrupo. Dating tahimik na sumusuko dito ang buong takbo, at ang natatanggap
+      // ng user ay "Magpadala muna ng utos mula sa panel" — paikot na payo, dahil
+      // galing nga sa panel ang utos. Nakita ito sa totoong transcript: humingi ang
+      // user ng pagtingin sa sitemap, dalawang beses bumagsak, lumipat pa sa mas
+      // mahal na model, at bumalik sa maling pinagkunan. Gumawa na lang tayo ng tab.
+      if (!tab || /^(chrome|edge|about|chrome-extension):/.test(tab.url || '')) {
+        try {
+          tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+        } catch {
+          return;
+        }
+      }
       gid = await chrome.tabs.group({ tabIds: [tab.id] });
       await chrome.tabGroups.update(gid, {
         title: `Dianna · ${(title || 'usapan').slice(0, 20)}`,
@@ -984,12 +1021,24 @@ chrome.notifications?.onClicked?.addListener((id) => {
 // --- STREAMING: binabasa ang SSE habang dumadating, hindi hintay nang buo ---
 // Ibinabalik ang buong assembled reply (para sa kasaysayan) habang naipapadala na
 // ang mga delta sa panel para sa live na pagpapakita.
-async function callModel({ url, apiKey, model, messages, tools, signal, onDelta }) {
+async function callModel({ url, apiKey, model, messages, tools, signal, onDelta, think }) {
   const post = (extra) =>
     fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages, tools, max_tokens: 8192, stream: true, ...extra }),
+      body: JSON.stringify({
+        model, messages, tools, max_tokens: 8192, stream: true,
+        // HANGGANAN NG PAG-IISIP. Sinukat ko ito sa qwen3.8-max sa parehong gawain:
+        //   walang hangganan → 656s, 111,696 karakter ng pag-iisip, at NAKALIMUTAN
+        //                      nitong kopyahin ang disenyo nang tuluyan
+        //   budget 4,000     →  81s, 4,854 karakter, kinopya ang lahat nang tama
+        // Walong beses na mas mabilis AT mas tama. Mas masahol pa: dalawang takbo ng
+        // walang-hangganan sa parehong input ang nagbigay ng magkaibang resulta — hindi
+        // lang mabagal ang lantad na pag-iisip, hindi ito maaasahan.
+        // Ang max_tokens ay HINDI humahawak dito; hiwalay ang bilang ng reasoning token.
+        ...(think ? { enable_thinking: true, thinking_budget: think } : {}),
+        ...extra,
+      }),
       signal,
     });
 
@@ -1147,7 +1196,7 @@ chrome.runtime.onConnect.addListener((port) => {
     run = { id: msg.runId, sessionId: msg.sessionId };
 
     const { apiKey, baseUrl, provider, model, strongModel, mode, autopilot, teach, mcpServers,
-            audit, auditProvider, auditUrl, auditKey, auditModel } = await getSettings();
+            think, audit, auditProvider, auditUrl, auditKey, auditModel } = await getSettings();
     const runStartAt = Date.now(); // para sa usage tracking
     let routedModel = model; // deklarado agad para ligtas sa finally
 
@@ -1396,9 +1445,7 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!models.length) return null;
 
       const auditStart = Date.now();
-      const firstUser = (
-        messages.find((m) => m.role === 'user' && typeof m.content === 'string')?.content || ''
-      ).slice(0, 600);
+      const hulingUtos = latestUserTask(messages).slice(0, 600);
       const trail = toolTrail(messages);
       send({ type: 'tool', name: '_audit', args: { model: models.join(' + ') } });
 
@@ -1415,12 +1462,18 @@ chrome.runtime.onConnect.addListener((port) => {
               {
                 role: 'user',
                 content:
-                  `ANG UTOS NG USER:\n${firstUser}\n\n` +
+                  `ANG UTOS NG USER:\n${hulingUtos}\n\n` +
+                  (projNote
+                    ? `ANG IBINIGAY NA SA WORKER BAGO PA SIYA SUMAGOT (nasa system prompt niya ito, ` +
+                      `kaya HINDI hallucination kung galing dito ang sinabi niya):\n${projNote.slice(0, 2500)}\n\n`
+                    : '') +
                   `ANG TALAGANG GINAWA NG WORKER (mga tool na tinawag, sunod-sunod):\n${trail}\n\n` +
                   `ANG HULING SAGOT NG WORKER (${routedModel}):\n${finalText.slice(0, 8000)}\n\n` +
                   'Ihambing ang SAGOT sa GINAWA. Kung may sinasabi siyang ginawa niya pero ' +
                   'wala sa listahan ng tool, o may binabanggit na nakaraang gawain na hindi ' +
-                  'naman nangyari — iyon ang pinakamabigat na sablay, sabihin mo agad.',
+                  'naman nangyari — iyon ang pinakamabigat na sablay, sabihin mo agad. Pero ' +
+                  'ang nasa ibinigay na konteksto sa itaas ay TOTOO — huwag mo itong tawaging ' +
+                  'gawa-gawa dahil lang walang tool na tumawag para makuha ito.',
               },
             ],
             signal: abort.signal,
@@ -1475,9 +1528,11 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!audit || !auditKey || !auditUrl) return;
       const checkModel = String(auditModel).split(',')[0].trim();
       if (!checkModel) return;
-      const firstUser = (
-        messages.find((m) => m.role === 'user' && typeof m.content === 'string')?.content || ''
-      ).slice(0, 500);
+      // Parehong bug dito gaya ng sa runAudit, at mas mabigat: ang midCheck ay
+      // nagpapasok ng "IWASTO" sa gitna ng gawain, at ang mga pagwawastong iyon ay
+      // itinatala sa knowledge hub bilang aral. Ang maling pagwawasto ay hindi lang
+      // nakakaligaw ngayon — natututuhan ito nang permanente.
+      const utos = latestUserTask(messages).slice(0, 500);
       const tail = JSON.stringify(messages.slice(-8)).slice(0, 6000);
       try {
         const res = await fetch(auditUrl, {
@@ -1490,7 +1545,7 @@ chrome.runtime.onConnect.addListener((port) => {
               {
                 role: 'user',
                 content:
-                  `Ikaw ang second brain ng isang browser agent. UTOS NG USER:\n${firstUser}\n\n` +
+                  `Ikaw ang second brain ng isang browser agent. UTOS NG USER:\n${utos}\n\n` +
                   `HULING MGA HAKBANG (nasa hakbang ${step} na):\n${tail}\n\n` +
                   'Tama ba ang direksyon niya? Sumagot sa ISANG linya lang: "TULOY" kung tama, o ' +
                   '"IWASTO: <maikling dahilan + ang tamang susunod na hakbang>" kung mali, paikot-ikot, ' +
@@ -1664,6 +1719,7 @@ chrome.runtime.onConnect.addListener((port) => {
             .filter((t) => !blockedTools.has(t.function.name))
             .concat(mcpTools, googleTools),
           signal: abort.signal,
+          think,
           onDelta: (type, text) => send({ type, text }),
         });
 

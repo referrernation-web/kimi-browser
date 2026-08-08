@@ -3,6 +3,50 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.24.0 (may hangganan na ang pag-iisip, at limang tunay na bug)
+
+Sinukat ko ang parehong gawain sa qwen3.8-max sa tatlong setting ng pag-iisip:
+
+| Setting | Oras | Pag-iisip | Nakopya ang disenyo? |
+|---|---|---|---|
+| **Walang hangganan** (ang dating gawi) | **656s** | 111,696 chars | **✗ ✗ ✗ HINDI** |
+| **thinking_budget 4000** | **81s** | 4,854 chars | ✓ ✓ ✓ oo |
+| enable_thinking: false | 115s | 0 | ✓ ✓ ✓ oo (pero sumulat sa chat) |
+
+Hindi mahina ang reasoning — **sobra ang pag-iisip, at doon ito nawawala.** Labing-isang
+minuto ng pag-iisip, tapos nakalimutan nitong kopyahin ang disenyo nang tuluyan. Sa 4,000
+na budget: walong beses na mas mabilis AT mas tama. Mas mahalaga pa: dalawang takbo ng
+walang-hangganan sa PAREHONG input ang nagbigay ng magkaibang resulta — hindi lang mabagal
+ang lantad na pag-iisip, **hindi ito maaasahan.** Hindi hinahawakan ng `max_tokens` ang
+reasoning; hiwalay ang bilang nito.
+
+Default na ngayon ang `thinking_budget: 4000` sa pamilyang Qwen (tokenplan, dashscope).
+Hindi ito ipinapadala sa Kimi at Groq — hindi nila kilala ang parameter.
+
+Limang bug na nakita sa isang totoong transcript ng trabaho:
+
+- **Hinuhusgahan ng auditor ang maling tanong.** `messages.find(...)` ang ginagamit — ang
+  KAUNA-UNAHANG mensahe ng buong usapan. Matapos humingi ang user ng buong research,
+  sinukat ng auditor ang sagot laban sa *"nakikita mo ba yung project nayan?"* mula
+  tatlong turn ang nakalipas. 6/10, ipinasulat muli nang walang saysay.
+- **Parehong bug sa `midCheck`, at mas mabigat.** Tumatakbo ito kada anim na hakbang at
+  nagpapasok ng `IWASTO` sa gitna ng gawain — at ang mga pagwawastong iyon ay **itinatala
+  sa knowledge hub bilang aral.** Ang maling pagwawasto ay natututuhan nang permanente.
+- **Hindi nakikita ng auditor ang ibinigay sa worker.** Naglista ang worker ng 21 file
+  mula sa system prompt niya; tinawag itong "potensyal na hallucination" ng auditor at
+  binigyan ng 4/10. Ipinapasa na ngayon ang project context, at tahasang sinasabi na
+  totoo ito.
+- **Sumusuko ang `ensureScope` kapag `chrome://` ang bukas na tab** — at ang payo pa ay
+  "magpadala mula sa panel", na ginawa naman ng user. Sa transcript: humingi ang user ng
+  pagtingin sa sitemap, dalawang beses bumagsak, lumipat pa sa mas mahal na model, tapos
+  bumalik sa maling pinagkunan. Gumagawa na ito ng tab.
+- **Hindi alam ng modelo kung ANO ang bawat file.** Ginamit niya ang `Pages.csv` — isang
+  Search Console **performance export** — bilang patunay na wala pang artikulo sa apat na
+  paksa. Ang export na iyon ay may laman lang na mga pahinang may impression sa napiling
+  petsa. Apat na paksang meron na pala ang inirekomenda. Ngayon, `Pages.csv (975 linya ·
+  nagsisimula sa: URL,Clicks,Impressions…)` ang nakikita niya, at may tuntuning ang
+  **kawalan sa isang ulat ng traffic ay hindi patunay ng kawalan sa site.**
+
 ## Anong bago sa v0.23.0 (kinokopya na ang disenyo, at hindi na basura ang export)
 
 Sinukat ko ang totoong master prompt ng Hamuq: **73,115 karakter**. Dalawang bagay ang

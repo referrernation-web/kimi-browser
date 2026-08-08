@@ -349,7 +349,20 @@ export function addFile(projectId, name, text) {
 
     const id = newId('f_');
     await set({ [CHUNK_PREFIX + id]: chunks, [RAW_PREFIX + id]: body });
-    p.files.push({ id, name: String(name).slice(0, 120), size: body.length, chunks: chunks.length, addedAt: Date.now() });
+    // ANG HUGIS NG FILE, itinatala ngayon dahil libre ito dito at mahal sa bawat prompt.
+    // Bakit mahalaga: sa isang totoong takbo, ginamit ng agent ang Pages.csv — isang
+    // Search Console PERFORMANCE export — bilang patunay na WALA pang artikulo sa
+    // isang paksa. Ang export na iyon ay naglalaman lang ng mga pahinang may impression
+    // sa napiling petsa; ang bagong artikulong walang impression ay wala roon. Kaya
+    // nagrekomenda siya ng apat na paksang meron na pala. Kapag nakikita niyang
+    // "975 linya · URL,Clicks,Impressions,CTR,Position", malalaman niyang hindi ito
+    // sitemap at hindi ito patunay ng kawalan.
+    const linya = body.split('\n').filter((l) => l.trim()).length;
+    const ulo = (body.split('\n').find((l) => l.trim()) || '').trim().slice(0, 110);
+    p.files.push({
+      id, name: String(name).slice(0, 120), size: body.length,
+      chunks: chunks.length, lines: linya, head: ulo, addedAt: Date.now(),
+    });
     await set({ [PKEY]: ps });
     return { ok: true, id, mga_tipak: chunks.length, laki: body.length };
   });
@@ -449,9 +462,24 @@ export async function projectPrompt(sessionId, mode) {
   if (p.instructions) out += `\n\nTAGUBILIN NG PROJECT (sundin ito sa buong gawain):\n${p.instructions}`;
   if (!p.files.length) return out;
 
+  // Hindi lang pangalan: hugis din. Ang "- Pages.csv" ay walang sinasabi; ang
+  // "- Pages.csv (975 linya · URL,Clicks,Impressions…)" ay nagsasabing performance
+  // export ito, hindi sitemap — kaya hindi ito patunay na WALA pang isang pahina.
+  const hugis = (f) => {
+    const bits = [];
+    if (f.lines) bits.push(`${f.lines.toLocaleString()} linya`);
+    else if (f.size) bits.push(`${Math.round(f.size / 1024)}KB`);
+    if (f.head) bits.push(`nagsisimula sa: ${f.head}`);
+    return bits.length ? `  (${bits.join(' · ')})` : '';
+  };
   out +=
     `\n\nMGA DOKUMENTO SA PROJECT (${p.files.length}):\n` +
-    p.files.map((f) => `- ${f.name}${ROLE_TAG[f.role] || ''}`).join('\n');
+    p.files.map((f) => `- ${f.name}${ROLE_TAG[f.role] || ''}${hugis(f)}`).join('\n') +
+    `\n\nTingnan kung ANO ang isang file bago mo ito paniwalaan. Ang isang ulat ng ` +
+    `performance (Search Console, analytics) ay naglalaman lang ng mga bagay na may ` +
+    `datos sa napiling petsa — ang KAWALAN ng isang bagay doon ay HINDI patunay na ` +
+    `wala ito. Kung "meron na ba tayo nito?" ang tanong, ang sagot ay nasa sitemap o ` +
+    `sa mismong site, hindi sa isang ulat ng traffic.`;
 
   const master = p.files.find((f) => f.role === 'prompt');
   const template = p.files.find((f) => f.role === 'template');
