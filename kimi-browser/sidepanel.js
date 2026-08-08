@@ -3,7 +3,7 @@ import { forSpeech } from './speech.js';
 import { googleConnect } from './google.js';
 import { parseMarkdown, blocksToHtml, makeDocx, makePptx } from './docx.js';
 import { makePdf } from './pdf.js';
-import { docGet, docAsMarkdown, docAsHtml } from './docs.js';
+import { docGet, docAsMarkdown, docAsHtml, docAsPlainMarkdown } from './docs.js';
 import { chatModels } from './models.js';
 
 const $ = (id) => document.getElementById(id);
@@ -488,7 +488,7 @@ function renderEntry(e) {
       if (!d) return;
       renderDocCard(active(), {
         sessionId: e.sessionId, title: d.title, words: d.words,
-        sections: d.sections.length, outline: d.sections.map((s) => s.h),
+        sections: d.sections.length, outline: d.sections.map((s) => s.h), design: !!d.html,
       });
     });
   }
@@ -1086,9 +1086,26 @@ $('cartesiakey').onchange = () => {
 $('cartesiavoice').onchange = () => chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
 // pwedeng ipamigay ang sa iba dahil nakatali ito sa ID ng extension mo.
 // --- 📁 PROJECTS: ang kaalamang IKAW ang nagbibigay ---
-// Isang project kada kliyente: sariling tagubilin at mga dokumento. Ang laman ay
-// hinahanap ng search_files, hindi ibinubuhos sa konteksto. Ang MASTER PROMPT ay
-// minamarkahan ng 📌 — doon tinuturo ang agent para sa istruktura at disenyo.
+// Isang project kada kliyente: sariling tagubilin at mga dokumento. May DALAWANG
+// espesyal na marka, at magkaiba ang trabaho:
+//   📌 MASTER PROMPT   — ang mga panuntunan: istruktura, tono, mga bawal, bilang.
+//   🎨 TEMPLATE        — isang NAIPADALA nang artikulo. Dito kinukuha ang TOTOONG
+//                        CSS at klase. Hindi sapat ang paglalarawan ng disenyo sa
+//                        salita: kapag prosa lang ang basehan, muling GUMAGAWA siya
+//                        ng stylesheet kada artikulo, kaya iba-iba ang labas.
+// Sa Write mode, ang laman ng dalawang ito ay ipinapasok nang BUO sa system prompt.
+const ROLE_ICON = { prompt: '📌 ', template: '🎨 ' };
+const projSummary = (p) => {
+  const has = (r) => p.files.find((f) => f.role === r);
+  const m = has('prompt');
+  const t = has('template');
+  if (!p.files.length) return 'walang dokumento pa';
+  if (m && t) return `📌 ${m.name.slice(0, 18)} · 🎨 ${t.name.slice(0, 18)}`;
+  if (m) return `📌 ${m.name.slice(0, 20)} · ⚠ walang 🎨 disenyo`;
+  if (t) return `🎨 ${t.name.slice(0, 20)} · ⚠ walang 📌 panuntunan`;
+  return `${p.files.length} dokumento · ⚠ WALANG markang 📌 o 🎨`;
+};
+
 $('proj').onclick = async () => {
   $('menu').style.display = 'none';
   const F = await import('./files.js');
@@ -1117,8 +1134,9 @@ $('proj').onclick = async () => {
       nm.textContent = p.name;
       const n = document.createElement('span');
       n.className = 'n';
-      const master = p.files.find((f) => f.role === 'prompt');
-      n.textContent = `${p.files.length} dokumento${master ? ' · 📌 ' + master.name.slice(0, 24) : ''}`;
+      // Walang saysay ang bilang ng dokumento. Ang presensya ng 📌 at 🎨 lang ang
+      // nagsasabi kung makokopya ba ang disenyo o mag-iimbento siya ng sarili.
+      n.textContent = projSummary(p);
 
       const use = document.createElement('button');
       use.textContent = attached === id ? '✓ Gamit' : 'Gamitin';
@@ -1173,31 +1191,42 @@ $('proj').onclick = async () => {
 
     for (const f of p.files) {
       const fr = document.createElement('div');
-      fr.className = 'filerow' + (f.role === 'prompt' ? ' master' : '');
+      fr.className = 'filerow' + (f.role ? ' master' : '');
       const fn = document.createElement('span');
       fn.className = 'fn';
-      fn.textContent = (f.role === 'prompt' ? '📌 ' : '📄 ') + f.name;
+      fn.textContent = (ROLE_ICON[f.role] || '📄 ') + f.name;
       const fm = document.createElement('span');
       fm.className = 'fm';
       fm.textContent = `${Math.round(f.size / 1024)}KB · ${f.chunks}`;
-      const star = document.createElement('button');
-      star.textContent = f.role === 'prompt' ? '📌' : '☆';
-      star.title = f.role === 'prompt' ? 'Ito ang master prompt' : 'Markahan bilang master prompt';
-      star.onclick = async () => {
-        await F.setFileRole(p.id, f.id, f.role === 'prompt' ? '' : 'prompt');
-        repaint();
+
+      // Dalawang marka, dalawang trabaho: ang 📌 ay ang mga PANUNTUNAN, ang 🎨 ay ang
+      // TOTOONG CSS. Sa Write mode, ipinapasok nang buo ang dalawa sa system prompt.
+      const mk = (role, on, off, tip) => {
+        const b = document.createElement('button');
+        b.textContent = f.role === role ? on : off;
+        b.title = tip;
+        b.onclick = async () => { await F.setFileRole(p.id, f.id, f.role === role ? '' : role); repaint(); };
+        return b;
       };
+      const star = mk('prompt', '📌', '☆', 'Master prompt: ang mga panuntunan at istruktura');
+      const art = mk('template', '🎨', '🖌', 'Template ng disenyo: isang naipadalang artikulo na kukunan ng TOTOONG CSS');
+
       const x = document.createElement('button');
       x.textContent = '×';
       x.onclick = async () => { await F.deleteFile(p.id, f.id); repaint(); };
-      fr.append(fn, fm, star, x);
+      fr.append(fn, fm, star, art, x);
       wrap.append(fr);
     }
-    if (p.files.length && !p.files.some((f) => f.role === 'prompt')) {
-      const tip = document.createElement('div');
-      tip.className = 'dim';
-      tip.textContent = 'Pindutin ang ☆ sa master prompt para iyon ang sundin niya sa istruktura at disenyo.';
-      wrap.append(tip);
+    if (p.files.length) {
+      const kulang = [];
+      if (!p.files.some((f) => f.role === 'prompt')) kulang.push('☆ para sa master prompt (ang mga panuntunan)');
+      if (!p.files.some((f) => f.role === 'template')) kulang.push('🖌 para sa isang NAIPADALA nang artikulo (dito kinukuha ang totoong CSS)');
+      if (kulang.length) {
+        const tip = document.createElement('div');
+        tip.className = 'dim';
+        tip.textContent = 'Markahan: ' + kulang.join(' · ');
+        wrap.append(tip);
+      }
     }
 
     // ANG "PROMPT SCANNER": isang link lang — Google Docs, Sheets, GitHub, o kahit
@@ -1642,10 +1671,28 @@ function renderDocCard(sess, m) {
   const body = document.createElement('div');
   body.className = 'docbody';
   det.append(sum, body);
+  // ANG PREVIEW AY IFRAME, HINDI innerHTML. Dalawang dahilan, pareho nakikita:
+  // ang innerHTML ay HINDI nagpapatakbo ng <script>, kaya patay ang mga animation
+  // ng artikulo; at ang sariling <style> ng dokumento ay nakikipag-away sa .docbody
+  // na estilo ng panel. Ang unang tingin ng VA sa disenyo ay dapat ang TOTOO nito.
+  //
+  // Blob URL, hindi srcdoc: minamana ng srcdoc ang CSP ng extension page
+  // (script-src 'self'), kaya haharangin ang inline script ng design system.
+  // Ang sandbox na walang allow-same-origin ang naghihiwalay dito sa panel.
   det.ontoggle = async () => {
     if (!det.open || body.dataset.filled) return;
-    body.innerHTML = await docAsHtml(sid);
     body.dataset.filled = '1';
+    const doc = await docGet(sid);
+    const url = URL.createObjectURL(
+      new Blob([fullPage(doc, await docAsHtml(sid))], { type: 'text/html' })
+    );
+    const fr = document.createElement('iframe');
+    fr.src = url;
+    fr.sandbox = 'allow-scripts';
+    fr.style.cssText =
+      'width:100%;height:62vh;border:1px solid var(--line);border-radius:8px;background:#fff';
+    body.replaceChildren(fr);
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
   };
   box.append(det);
 
@@ -1668,16 +1715,57 @@ function renderDocCard(sess, m) {
   ];
 
   // Isang beses lang binubuo ang laman para sa lahat ng format — hindi kada pindot.
+  //
+  // ANG docAsPlainMarkdown ANG SUSI DITO. Ginawa ito mismo para sa ganitong pagkakataon
+  // pero hindi kailanman na-import — kaya ang .docx, .pdf, .pptx at .md ng isang
+  // artikulong HTML ay naglalaman ng literal na `<div class="hero">` at `<style>`.
+  // Nakakahiyang ipadala iyon sa kliyente. Ang parseMarkdown ay tinuturing na
+  // ordinaryong talata ang bawat linyang hindi nagsisimula sa # o -, kaya ang buong
+  // markup ay dumadaan bilang teksto.
   const build = async () => {
     const doc = await docGet(sid);
-    doc.md = await docAsMarkdown(sid);
+    const plain = await docAsPlainMarkdown(sid); // HTML → teksto; markdown → walang binago
+    doc.md = plain;
     doc.html = await docAsHtml(sid);
-    return { doc, blocks: parseMarkdown(doc.sections.map((s) => s.md).join('\n\n')) };
+    return { doc, blocks: parseMarkdown(plain) };
   };
+
+  // Ang buong pahina — ginagamit ng preview at ng "Buksan nang buo".
+  // Kapag HTML ang dokumento, ang artikulo ang may sariling disenyo: HUWAG itong
+  // balutin ng Georgia na "sheet", aagawan lang nito ng hitsura ang gold system.
+  const fullPage = (doc, html) =>
+    doc.html
+      ? `<!doctype html><meta charset="utf-8"><title>${doc.title}</title>${html}`
+      : `<!doctype html><meta charset="utf-8"><title>${doc.title}</title>
+<style>
+  @page { size: letter; margin: 25mm; }
+  body { background:#f0f0f4; margin:0; padding:28px 16px 60px;
+    font:16px/1.7 Georgia,"Times New Roman",serif; color:#1a1a1a; }
+  .sheet { background:#fff; max-width:760px; margin:0 auto; padding:64px 72px;
+    box-shadow:0 3px 18px #00000022; border-radius:2px; }
+  h1 { font-size:27px; line-height:1.25; text-align:center; margin:0 0 28px; }
+  h2 { font-size:20px; margin:30px 0 10px; }
+  h3 { font-size:17px; margin:22px 0 8px; }
+  p, li { margin:0 0 13px; }
+  ul, ol { padding-left:26px; }
+  blockquote { margin:0 0 13px; padding-left:16px; border-left:3px solid #ddd; color:#555; }
+  .meta { text-align:center; color:#888; font:12px/1.5 ui-sans-serif,system-ui,sans-serif;
+    margin:-18px 0 30px; }
+  @media print { body { background:#fff; padding:0; } .sheet { box-shadow:none; max-width:none; padding:0; } }
+</style>
+<div class="sheet"><h1>${doc.title}</h1>
+<div class="meta">${doc.words} salita · ${doc.sections.length} seksyon · Ctrl+P para i-print o gawing PDF</div>
+${html}</div>`;
 
   const files = document.createElement('div');
   files.className = 'docfiles';
-  for (const f of FORMATS) {
+  // Kapag may sariling disenyo ang artikulo, ang .html ANG maibibigay sa kliyente —
+  // ito lang ang may dalang disenyo. Iuna ito, at sabihin sa bawat kard kung ano
+  // ang laman. Hindi ang nawawalang disenyo ang sumasakit sa VA; ang hindi pagkaalam
+  // kung aling buton ang tama ang sumasakit.
+  const mayDisenyo = !!m.design;
+  const ayos = mayDisenyo ? [...FORMATS].sort((a, b) => (b.ext === 'html') - (a.ext === 'html')) : FORMATS;
+  for (const f of ayos) {
     const card = document.createElement('div');
     card.className = 'filecard';
     const ic = document.createElement('span');
@@ -1690,7 +1778,11 @@ function renderDocCard(sess, m) {
     nm.textContent = `${safeName(m.title)}.${f.ext}`;
     const ty = document.createElement('div');
     ty.className = 'ftype';
-    ty.textContent = `Dokumento · ${f.label}`;
+    ty.textContent = mayDisenyo
+      ? f.ext === 'html'
+        ? '✓ Buong disenyo · ito ang ibigay sa kliyente'
+        : `${f.label} · teksto lang, walang disenyo`
+      : `Dokumento · ${f.label}`;
     info.append(nm, ty);
     const dl = document.createElement('button');
     dl.textContent = 'Download';
@@ -1719,27 +1811,9 @@ function renderDocCard(sess, m) {
   full.textContent = '⛶ Buksan nang buo';
   full.onclick = async () => {
     const doc = await docGet(sid);
-    const page = `<!doctype html><meta charset="utf-8"><title>${doc.title}</title>
-<style>
-  @page { size: letter; margin: 25mm; }
-  body { background:#f0f0f4; margin:0; padding:28px 16px 60px;
-    font:16px/1.7 Georgia,"Times New Roman",serif; color:#1a1a1a; }
-  .sheet { background:#fff; max-width:760px; margin:0 auto; padding:64px 72px;
-    box-shadow:0 3px 18px #00000022; border-radius:2px; }
-  h1 { font-size:27px; line-height:1.25; text-align:center; margin:0 0 28px; }
-  h2 { font-size:20px; margin:30px 0 10px; }
-  h3 { font-size:17px; margin:22px 0 8px; }
-  p, li { margin:0 0 13px; }
-  ul, ol { padding-left:26px; }
-  blockquote { margin:0 0 13px; padding-left:16px; border-left:3px solid #ddd; color:#555; }
-  .meta { text-align:center; color:#888; font:12px/1.5 ui-sans-serif,system-ui,sans-serif;
-    margin:-18px 0 30px; }
-  @media print { body { background:#fff; padding:0; } .sheet { box-shadow:none; max-width:none; padding:0; } }
-</style>
-<div class="sheet"><h1>${doc.title}</h1>
-<div class="meta">${doc.words} salita · ${doc.sections.length} seksyon · Ctrl+P para i-print o gawing PDF</div>
-${await docAsHtml(sid)}</div>`;
-    const url = URL.createObjectURL(new Blob([page], { type: 'text/html' }));
+    const url = URL.createObjectURL(
+      new Blob([fullPage(doc, await docAsHtml(sid))], { type: 'text/html' })
+    );
     chrome.tabs.create({ url });
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   };

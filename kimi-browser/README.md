@@ -3,6 +3,51 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.23.0 (kinokopya na ang disenyo, at hindi na basura ang export)
+
+Sinukat ko ang totoong master prompt ng Hamuq: **73,115 karakter**. Dalawang bagay ang
+lumabas, at pareho silang nagpapaliwanag kung bakit "hindi niya nakokopya yung design".
+
+**Isa: 11% lang ang nakikita niya.** Ang laman ng master prompt ay dumadaan LANG sa
+`search_files` — limang tipak na tig-800 karakter, mga 4,000 kada tawag. Mas malala: ang
+ranking (`overlap / sqrt(size)`) ay **kumikiling sa MAIIKLING tipak**, kabaligtaran mismo
+ng mahahabang CSS at HTML na kailangan. Sinasabi ng prompt na "SUNDIN ITO NANG BUO"
+habang ang mekanismo ay kayang magbigay ng pira-piraso lang. Hindi ito naaayos ng
+pagtutuno: sa isang design system, LAHAT ng linya ay kailangan ng LAHAT ng seksyon.
+
+**Dalawa: ang Part 8 ay PROSA, hindi CSS.** Ganito ang nakasulat doon:
+*"border-radius:13px; padding:2px (the 2px of visible gradient IS the border)"*.
+Iyon ay paglalarawan ng CSS sa Ingles. Kaya kada artikulo, **muling ginagawa** niya ang
+buong stylesheet mula sa deskripsyon — hindi kumokopya, gumagawa ng bago. Iyon ang
+dahilan kung bakit iba-iba ang labas.
+
+Ang naging sagot:
+
+- **🎨 Template ng disenyo** — bagong marka sa tabi ng 📌. I-upload ang isang
+  **naipadala nang artikulo** (`*-PUBLISH-READY.html`) at pindutin ang 🖌. Kinukuha
+  nito ang TOTOONG `<style>`, ang script ng animation, at ang balangkas ng markup —
+  at tinatanggal ang JSON-LD, para hindi madala ang lumang headline at petsa sa bago.
+- **Buo at verbatim ang injection sa Write mode** — nasa system prompt na niya ang
+  buong 📌 at 🎨, byte-exact. Hindi na siya naghahanap para sa disenyo, kaya **mas
+  mabilis pa** (dalawang round trip ang natanggal). Sa ibang mode, listahan pa rin ng
+  pangalan lang — hindi binabayaran ang 33k token para lang tingnan ang Gmail.
+- **Nakalaan na ang puwang sa search para sa totoong datos.** Dati, ang 91 tipak ng
+  master prompt ang sumasakop sa buong top-5 at nagugutom ang dokumento ng na-verify
+  na facts. Hindi na hinahanap ang naipasok nang buo.
+- **Sinasabi na niya kapag walang disenyo.** Dati, tahimik siyang nag-iimbento ng
+  sariling palette — mukhang tagumpay hanggang makita ng kliyente na mali ang kulay.
+- **Inayos ang export.** Ang `docAsPlainMarkdown` ay ginawa mismo para sa `.docx`,
+  `.pdf` at `.pptx` — pero **hindi ito kailanman na-import**. Kaya ang ibinibigay sa
+  kliyente ay may literal na `<section class="hq-hero">` at `<style>`. Naka-wire na,
+  at sinasabi na ng bawat file card kung alin ang may disenyo at alin ang teksto lang.
+- **Totoo nang preview.** Iframe na ngayon, hindi `innerHTML` — kaya tumatakbo ang mga
+  animation at hindi nag-aaway ang CSS ng artikulo sa CSS ng panel.
+- **Bagong `probe.mjs`** — TOTOONG binubuksan ng Chrome ang `sidepanel.js` at
+  pinipindot ang mga buton na gawa sa runtime. Ang `test-modules` ay tumitingin ng
+  syntax; ang `test-wiring` ay tumitingin kung may naka-assign na handler. Wala sa
+  dalawa ang makakahuli ng buton na pumuputok kapag pinindot. Nahuli nito ang isang
+  tunay na `SyntaxError` habang ginagawa ito.
+
 ## Anong bago sa v0.22.0 (prompt scanner, at INAYOS ang nawalang Projects)
 
 > ⚠️ **Ang v0.20.1 at v0.21.0 ay walang gumaganang 📁 Projects.** Nang alisin ko ang

@@ -114,6 +114,7 @@ export function docAppend({ title, append, start_new, replace_section }) {
       mga_salita: doc.words,
       mga_seksyon: doc.sections.length,
       balangkas: doc.sections.map((s) => s.h),
+      may_disenyo: !!doc.html, // ito ang nagpapasya kung aling file ang ibibigay sa kliyente
       tala: 'Naidagdag sa dokumento (wala ito sa usapan, kaya hindi lumalaki ang konteksto). Isulat ang susunod na seksyon, o sabihin sa user na handa na ito sa preview card.',
     };
   });

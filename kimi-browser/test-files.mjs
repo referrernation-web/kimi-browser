@@ -7,7 +7,9 @@ globalThis.chrome = {
     local: {
       get: async (k) => (typeof k === 'string' ? { [k]: store[k] } : { ...store }),
       set: async (o) => Object.assign(store, o),
-      remove: async (k) => { delete store[k]; },
+      // Ang totoong API ay tumatanggap ng string O array. Dapat ganoon din ang stub —
+      // ang stub na mas mahigpit kaysa sa totoo ay nagpapabagsak sa gumaganang code.
+      remove: async (k) => { for (const one of [].concat(k)) delete store[one]; },
     },
   },
 };

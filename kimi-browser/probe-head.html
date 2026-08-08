@@ -1,0 +1,40 @@
+<!doctype html><meta charset="utf-8"><title>probe</title>
+<script>
+// PROBE: hindi ito bahagi ng extension. Ang test-modules at test-wiring ay parehong
+// nakabatay sa teksto ng source. Dito naman TOTOONG BINUBUKSAN ng Chrome ang
+// sidepanel.js bilang ES module at pinipindot ang mga buton na gawa sa runtime —
+// ang uri ng sirang tatlong beses nang naipadala nang hindi nahuhuli.
+const store = {
+  projects: {
+    p1: {
+      id: 'p1', name: 'Hamuq', instructions: '', createdAt: 1,
+      files: [
+        { id: 'f1', name: 'v4.5-master.md', size: 73115, chunks: 91 },
+        { id: 'f2', name: 'shipped-article.html', size: 90390, chunks: 120 },
+      ],
+    },
+  },
+  sessionProject: {},
+};
+globalThis.chrome = {
+  storage: { local: {
+    get: async (k) =>
+      k == null ? { ...store }
+      : typeof k === 'string' ? { [k]: store[k] }
+      : Array.isArray(k) ? Object.fromEntries(k.map((x) => [x, store[x]]))
+      : Object.fromEntries(Object.keys(k).map((x) => [x, x in store ? store[x] : k[x]])),
+    set: async (o) => { Object.assign(store, o); },
+    remove: async (k) => { for (const one of [].concat(k)) delete store[one]; },
+  } },
+  runtime: {
+    connect: () => ({ postMessage() {}, onMessage: { addListener() {} }, onDisconnect: { addListener() {} } }),
+    getURL: (p) => p, id: 'probe', lastError: null,
+  },
+  tabs: { query: async () => [], create: async () => ({}) },
+  downloads: { download: async () => 1 },
+  identity: {}, alarms: { getAll: async () => [] }, notifications: {},
+};
+window.__err = [];
+addEventListener('error', (e) => window.__err.push(String(e.message)));
+addEventListener('unhandledrejection', (e) => window.__err.push('reject: ' + e.reason));
+</script>

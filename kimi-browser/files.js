@@ -10,12 +10,22 @@
 const PKEY = 'projects';
 const SKEY = 'sessionProject'; // { [sessionId]: projectId }
 const CHUNK_PREFIX = 'fchunks_';
+// Ang ORIHINAL na teksto, buo. Kailangan ito ng 📌 at 🎨 na ipinapasok nang verbatim.
+// Mukhang aksaya, pero ang mga tipak ay may 120/800 na overlap — 15% silang MAS
+// MALAKI kaysa sa orihinal. Ang pag-iimbak nito ay halos libre, at ang kapalit ay
+// eksaktong teksto sa halip na hulang muling pagbuo.
+const RAW_PREFIX = 'fraw_';
 
 const CHUNK_SIZE = 800; // karakter kada tipak
 const CHUNK_OVERLAP = 120; // para hindi maputol ang pangungusap sa gitna
 const MAX_HITS = 5; // tipak na ibinabalik ng search
 const MAX_INSTRUCTIONS = 2000; // hangganan ng project instructions sa system prompt
 const MAX_FILE_CHARS = 400000; // ~65,000 salita kada file
+const MAX_TEMPLATE = 30000; // ang CSS + script + balangkas ng isang naipadalang artikulo
+const MAX_PROJECT_INJECT = 120000; // ~33k token; kasya sa 256k na konteksto
+
+// Mga role na may espesyal na kahulugan. Isa lang ang bawat isa kada project.
+const ROLE_TAG = { prompt: '  ← 📌 MASTER PROMPT', template: '  ← 🎨 TEMPLATE NG DISENYO' };
 
 let queue = Promise.resolve();
 const enqueue = (op) => {
@@ -111,7 +121,12 @@ export async function extractText(name, buf) {
   const ext = (name.split('.').pop() || '').toLowerCase();
   if (['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'html', 'htm', 'xml', 'log'].includes(ext)) {
     const t = new TextDecoder().decode(buf instanceof Uint8Array ? buf : new Uint8Array(buf));
-    return ext === 'html' || ext === 'htm' ? stripTags(t) : t;
+    if (ext !== 'html' && ext !== 'htm') return t;
+    // Ang isang BUONG pahina (may doctype o <style>) ay ina-upload para sa MARKUP nito —
+    // iyon ang buong punto ng 🎨 template: ang eksaktong CSS at ang eksaktong klase.
+    // Kung tatanggalin ang tags, mawawala mismo ang bagay na kailangan. Ang piraso lang
+    // ng HTML ay teksto ang halaga, kaya iyon ang nililinis pa rin.
+    return /<!doctype|<style[\s>]/i.test(t) ? t : stripTags(t);
   }
   if (ext === 'docx') {
     const z = await unzip(buf);
@@ -218,6 +233,55 @@ export function chunkText(text) {
   return chunks.filter((c) => c.length > 20);
 }
 
+// PANSAMANTALANG PANUKLI para sa mga file na na-upload BAGO ang v0.23. Noon, ang
+// mga tipak lang ang naiimbak, kaya kailangang baligtarin ang chunkText.
+//
+// HINDI ITO EKSAKTO, at may matibay na dahilan: ang chunkText ay may 120-karakter
+// na overlap, pero sa PAULIT-ULIT na teksto — CSS rule, talahanayan, listahan ng
+// presyo — maraming posisyon ang tumutugma nang pantay. Ang piliin ang pinakamahaba
+// ay lumalaktaw ng laman; ang piliin ang pinakamaikli ay nagdodoble. Hindi ito
+// depekto ng algoritmo: talagang hindi mababawi ang paulit-ulit na teksto mula sa
+// magkakapatong na tipak. Kaya itinatabi na natin ang orihinal (fraw_) — ito ay
+// pambalik-tanaw lang, at ang layunin ay malapit, hindi tumpak.
+export function joinChunks(chunks) {
+  let out = '';
+  for (const c of chunks || []) {
+    if (!out) { out = c; continue; }
+    // Ang totoong overlap ay CHUNK_OVERLAP, bawas ang inalis ng .trim(). Hinahanap
+    // ang pinakamalapit doon, hindi ang pinakamahabang tugma.
+    let best = 0;
+    for (let k = Math.min(c.length, CHUNK_OVERLAP + 20); k >= 40; k--) {
+      if (out.endsWith(c.slice(0, k))) { best = k; break; }
+    }
+    out += best ? c.slice(best) : '\n' + c;
+  }
+  return out;
+}
+
+// Mula sa isang naipadala nang artikulo, kunin ang bahaging DAPAT KOPYAHIN NANG
+// EKSAKTO: ang <style>, ang <script>, at ang unang bahagi ng markup kung saan
+// makikita kung paano ginagamit ang mga klase.
+//
+// Ang JSON-LD ay TINATANGGAL nang sadya — kung kasama iyon, kokopyahin niya ang
+// headline, petsa, at schema ng LUMANG artikulo papunta sa bago.
+export function designSkeleton(html) {
+  const s = String(html || '');
+  const css = [...s.matchAll(/<style[\s\S]*?<\/style>/gi)].map((m) => m[0]).join('\n');
+  const js = [...s.matchAll(/<script(?![^>]*ld\+json)[\s\S]*?<\/script>/gi)].map((m) => m[0]).join('\n');
+  const body = s
+    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  const parts = [];
+  if (css) parts.push(css);
+  if (js) parts.push(js);
+  parts.push('<!-- BALANGKAS NG MARKUP (simula ng artikulo) -->\n' + body);
+  return parts.join('\n\n').slice(0, MAX_TEMPLATE);
+}
+
+const looksHtml = (s) => /<!doctype|<style[\s>]|<section|<div/i.test(String(s || '').slice(0, 4000));
+
 const tok = (s) =>
   new Set(
     String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length > 2)
@@ -263,7 +327,9 @@ export function deleteProject(projectId) {
     const ps = await get(PKEY, {});
     const p = ps[projectId];
     if (!p) return { ok: true };
-    for (const f of p.files) await chrome.storage.local.remove(CHUNK_PREFIX + f.id).catch(() => {});
+    for (const f of p.files) {
+      await chrome.storage.local.remove([CHUNK_PREFIX + f.id, RAW_PREFIX + f.id]).catch(() => {});
+    }
     delete ps[projectId];
     await set({ [PKEY]: ps });
     return { ok: true };
@@ -282,16 +348,19 @@ export function addFile(projectId, name, text) {
     if (!chunks.length) return { error: 'Walang mabasang teksto sa file na ito.' };
 
     const id = newId('f_');
-    await set({ [CHUNK_PREFIX + id]: chunks });
+    await set({ [CHUNK_PREFIX + id]: chunks, [RAW_PREFIX + id]: body });
     p.files.push({ id, name: String(name).slice(0, 120), size: body.length, chunks: chunks.length, addedAt: Date.now() });
     await set({ [PKEY]: ps });
     return { ok: true, id, mga_tipak: chunks.length, laki: body.length };
   });
 }
 
-// Alin ang MASTER PROMPT? Kapag may nakamarka, tahasang tinuturo ito sa system prompt
-// bilang pinagmumulan ng istruktura at disenyo — hindi na kailangang hulaan ng agent
-// kung alin sa limang dokumento ang susundin.
+// Dalawang espesyal na role:
+//   'prompt'   (📌) — ang MASTER PROMPT: ang mga panuntunan, istruktura, at tono.
+//   'template' (🎨) — ang TEMPLATE NG DISENYO: isang naipadala nang artikulo na
+//                     kukunan ng TOTOONG CSS at klase, hindi ng paglalarawan nito.
+// Sa Write mode, ang laman ng dalawang ito ay ipinapasok nang BUO at VERBATIM sa
+// system prompt. Isa lang ang bawat uri kada project.
 export function setFileRole(projectId, fileId, role) {
   return enqueue(async () => {
     const ps = await get(PKEY, {});
@@ -299,7 +368,7 @@ export function setFileRole(projectId, fileId, role) {
     if (!p) return { error: 'Walang ganitong project.' };
     for (const f of p.files) {
       if (f.id === fileId) f.role = role || '';
-      else if (role === 'prompt' && f.role === 'prompt') f.role = ''; // isa lang ang master
+      else if (role && f.role === role) f.role = ''; // isa lang kada uri
     }
     await set({ [PKEY]: ps });
     return { ok: true };
@@ -314,7 +383,7 @@ export function deleteFile(projectId, fileId) {
       p.files = p.files.filter((f) => f.id !== fileId);
       await set({ [PKEY]: ps });
     }
-    await chrome.storage.local.remove(CHUNK_PREFIX + fileId).catch(() => {});
+    await chrome.storage.local.remove([CHUNK_PREFIX + fileId, RAW_PREFIX + fileId]).catch(() => {});
     return { ok: true };
   });
 }
@@ -345,29 +414,127 @@ export async function projectForSession(sessionId) {
   return ps[id] || null;
 }
 
-// --- Ang bahagi ng system prompt: instructions + listahan LANG ng file ---
-// Hindi ang laman. Ang laman ay dumadaan sa search_files kapag kailangan.
-export async function projectPrompt(sessionId) {
+// --- Ang bahagi ng system prompt ---
+//
+// SA WRITE MODE: ipinapasok nang BUO at VERBATIM ang 📌 master prompt at ang 🎨
+// template. Ito ang pagwawasto sa pinakamalaking depekto ng sistema. Dati, ang
+// laman ay dumadaan lang sa search_files: 5 tipak × 800 karakter = ~4,000 karakter
+// kada tawag, mula sa isang 73,000-karakter na dokumento. Mga 11% ang nakikita
+// niya — habang sinasabi ng prompt na "SUNDIN ITO NANG BUO". Mas malala pa: ang
+// ranking (overlap / sqrt(size)) ay kumikiling sa MAIIKLING tipak, kabaligtaran
+// mismo ng mahahabang CSS at HTML na kailangan. Hindi ito naaayos ng pagtutuno;
+// mali ang premise ng retrieval para sa ganitong dokumento. Sa isang design
+// system, LAHAT ng linya ay kailangan ng LAHAT ng seksyon.
+//
+// SA IBANG MODE: listahan pa rin ng pangalan. Hindi binabayaran ang 33k token
+// para lang tingnan ang Gmail.
+let injected = new Set(); // mga file id na buo nang nasa system prompt ngayong run
+export function injectedFiles() {
+  return injected;
+}
+
+async function fileBody(f) {
+  // Ang orihinal kung meron; ang muling pagbuo lang kung luma ang file (bago v0.23).
+  const text = (await get(RAW_PREFIX + f.id, '')) || joinChunks(await get(CHUNK_PREFIX + f.id, []));
+  // Ang 🎨 ay isang buong naipadalang artikulo (50k-90k). Ang kailangan lang doon
+  // ay ang CSS, ang script, at ang balangkas — hindi ang lumang laman nito.
+  return f.role === 'template' && looksHtml(text) ? designSkeleton(text) : text;
+}
+
+export async function projectPrompt(sessionId, mode) {
   const p = await projectForSession(sessionId);
+  injected = new Set();
   if (!p) return '';
   let out = `\n\nPROJECT: ${p.name}`;
   if (p.instructions) out += `\n\nTAGUBILIN NG PROJECT (sundin ito sa buong gawain):\n${p.instructions}`;
-  if (p.files.length) {
-    out +=
-      `\n\nMGA DOKUMENTO SA PROJECT (${p.files.length}) — ang LAMAN ay hindi nakalagay dito para hindi lumaki ang konteksto. ` +
-      `Gamitin ang search_files para hanapin ang kailangan mo:\n` +
-      p.files.map((f) => `- ${f.name}${f.role === 'prompt' ? '  ← MASTER PROMPT' : ''}`).join('\n');
+  if (!p.files.length) return out;
 
-    const master = p.files.find((f) => f.role === 'prompt');
-    if (master) {
-      out +=
-        `\n\nANG MASTER PROMPT NG PROJECT NA ITO AY "${master.name}". Ito ang batayan ng ISTRUKTURA ` +
-        `at ng DISENYO. BAGO ka magsulat, mag-search_files dito nang ilang beses para makuha ang: ` +
-        `(a) ang pagkakasunod ng mga seksyon, (b) ang eksaktong pangalan ng CSS class at ang palette, ` +
-        `at (c) ang mga tuntunin sa nilalaman. Sundin ito NANG BUO — huwag mag-imbento ng sariling ` +
-        `disenyo, sariling kulay, o sariling pangalan ng klase. Kung may halimbawang artikulo sa mga ` +
-        `dokumento, kopyahin ang eksaktong istruktura at klase nito.`;
+  out +=
+    `\n\nMGA DOKUMENTO SA PROJECT (${p.files.length}):\n` +
+    p.files.map((f) => `- ${f.name}${ROLE_TAG[f.role] || ''}`).join('\n');
+
+  const master = p.files.find((f) => f.role === 'prompt');
+  const template = p.files.find((f) => f.role === 'template');
+
+  // Walang nakamarka: SABIHIN ito. Ang tahimik na pag-iimbento ng sariling disenyo
+  // ang pinakamasamang uri ng pagbagsak — mukhang tagumpay hanggang sa makita ng
+  // kliyente na mali ang kulay.
+  if (!master && !template) {
+    return (
+      out +
+      `\n\nWALANG NAKAMARKANG 📌 MASTER PROMPT O 🎨 TEMPLATE NG DISENYO sa project na ito. ` +
+      `SABIHIN mo ito sa user BAGO ka magsulat: walang disenyong masusunod, kaya plain na ` +
+      `markdown lang ang malilikha mo. HUWAG kang mag-imbento ng sariling palette, sariling ` +
+      `pangalan ng CSS class, o sariling istruktura at ipakita iyon na parang sa kliyente galing.` +
+      `\n\nGamitin ang search_files para sa iba pang dokumento.`
+    );
+  }
+
+  if (mode !== 'write') {
+    return (
+      out +
+      `\n\nHindi nakalagay dito ang LAMAN ng mga dokumento. Gamitin ang search_files. ` +
+      `(Sa Write mode, awtomatikong ipinapasok nang buo ang 📌 at 🎨.)`
+    );
+  }
+
+  let gastos = 0;
+  const dagdag = (f, teksto, ulo) => {
+    if (!teksto) return;
+    const natitira = MAX_PROJECT_INJECT - gastos;
+    if (natitira < 2000) {
+      out += `\n\n[HINDI KASYA ang "${f.name}". Gamitin ang search_files dito.]`;
+      return;
     }
+    let laman = teksto;
+    if (teksto.length > natitira) {
+      // Middle-out, hindi tail-cut: ang simula (mga panuntunan) at ang dulo
+      // (checklist) ang pinaka-load-bearing sa ganitong dokumento.
+      const u = Math.floor(natitira * 0.6);
+      laman =
+        teksto.slice(0, u) +
+        `\n\n[…PINUTOL ANG GITNA, ${teksto.length - natitira} karakter. Mag-search_files sa ` +
+        `"${f.name}" kung may kailangan ka sa bahaging iyon…]\n\n` +
+        teksto.slice(-(natitira - u));
+    } else {
+      injected.add(f.id); // buo na ito — huwag nang hanapin, doble lang
+    }
+    gastos += laman.length;
+    out += `\n\n${ulo}\n${laman}\n===== KATAPUSAN: ${f.name} =====`;
+  };
+
+  // ANG TEMPLATE ANG UNA. Ito ang byte-exact na bagay: ang master prompt ay
+  // maaaring i-paraphrase, ang CSS ay hindi.
+  if (template) {
+    dagdag(
+      template,
+      await fileBody(template),
+      `===== 🎨 TEMPLATE NG DISENYO: ${template.name} =====\n` +
+        `Ito ang TOTOONG CSS, script, at markup ng isang NAIPADALA nang artikulo — hindi ` +
+        `paglalarawan nito. KOPYAHIN ang <style> block na ito nang BUO at NANG WALANG ` +
+        `BINABAGO. Huwag magpalit ng kulay, ng pangalan ng klase, ng border-radius, o ng ` +
+        `tagal ng animation. Gamitin ang parehong klase sa parehong paraan. Huwag gumawa ` +
+        `ng bagong klase kung may umiiral nang katumbas. Kung magkaiba ang sinasabi nito ` +
+        `at ng master prompt tungkol sa hitsura, ANG TEMPLATE ANG TAMA — ito ang totoong ` +
+        `naipadala; ang master prompt ay paglalarawan lang nito sa salita.`
+    );
+  }
+
+  if (master) {
+    dagdag(
+      master,
+      await fileBody(master),
+      `===== 📌 MASTER PROMPT: ${master.name} =====\n` +
+        `Ito ang BUONG laman, hindi buod at hindi tipak. Ito ang batayan ng istruktura, ng ` +
+        `tono, at ng lahat ng panuntunan. Sundin ito nang buo, kasama ang mga bilang: kung ` +
+        `may minimum na table, abutin mo; kung may bilang ng FAQ, abutin mo; kung may ` +
+        `ipinagbabawal na karakter o format, huwag mo itong gamitin kahit isang beses.`
+    );
+  }
+
+  const iba = p.files.filter((f) => !injected.has(f.id));
+  if (iba.length) {
+    out += `\n\nAng ibang dokumento (${iba.map((f) => f.name).join(', ')}) ay hinahanap sa search_files.`;
   }
   return out;
 }
@@ -383,6 +550,11 @@ export async function searchFiles(sessionId, query, fileName) {
   const hits = [];
   for (const f of p.files) {
     if (want && !f.name.toLowerCase().includes(want)) continue;
+    // Ang buo nang naipasok sa system prompt ay hindi na hinahanap: doble lang iyon,
+    // at ang 91 tipak ng isang master prompt ay sasakop sa buong top-5 at gugutumin
+    // ang mga dokumento ng totoong datos. Kapag tahasang pinangalanan, hahanapin pa
+    // rin — iyon ang labasan kapag may pinutol na gitna.
+    if (!want && injected.has(f.id)) continue;
     const chunks = await get(CHUNK_PREFIX + f.id, []);
     chunks.forEach((c, i) => {
       const ct = tok(c);
@@ -405,4 +577,7 @@ export async function searchFiles(sessionId, query, fileName) {
   };
 }
 
-export const _fileInternals = { CHUNK_SIZE, MAX_HITS, MAX_INSTRUCTIONS, MAX_FILE_CHARS, CHUNK_PREFIX };
+export const _fileInternals = {
+  CHUNK_SIZE, CHUNK_OVERLAP, MAX_HITS, MAX_INSTRUCTIONS, MAX_FILE_CHARS,
+  CHUNK_PREFIX, RAW_PREFIX, MAX_TEMPLATE, MAX_PROJECT_INJECT,
+};

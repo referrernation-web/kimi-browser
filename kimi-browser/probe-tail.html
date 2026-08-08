@@ -1,0 +1,38 @@
+<script type="module" src="./sidepanel.js"></script>
+<script>
+const hintay = (ms) => new Promise((r) => setTimeout(r, ms));
+const teksto = (sel) => [...document.querySelectorAll(sel)].map((e) => e.textContent);
+
+setTimeout(async () => {
+  const out = { errors: (window.__err || []).slice(0, 3) };
+  try {
+    await document.getElementById('proj').onclick();
+    await hintay(400);
+    out.buod = document.querySelector('.projrow .n')?.textContent;
+
+    const buksan = [...document.querySelectorAll('.projrow button')].find((b) => b.textContent === '▸');
+    await buksan.onclick();
+    await hintay(400);
+    out.mgaButon = [...document.querySelectorAll('.filerow')]
+      .map((r) => teksto('x').length ? '' : [...r.querySelectorAll('button')].map((b) => b.textContent).join(''))
+      .join(' | ');
+    out.paalala = teksto('.projbox .dim').find((t) => t.startsWith('Markahan'));
+
+    // Markahan ang una bilang 📌 (unang buton), ang pangalawa bilang 🎨 (pangalawang buton).
+    let rows = [...document.querySelectorAll('.filerow')];
+    await rows[0].querySelectorAll('button')[0].onclick();
+    await hintay(400);
+    rows = [...document.querySelectorAll('.filerow')];
+    await rows[1].querySelectorAll('button')[1].onclick();
+    await hintay(400);
+
+    out.pangalan = teksto('.filerow .fn').join(' | ');
+    out.buodPagkatapos = document.querySelector('.projrow .n')?.textContent;
+    out.roleSaStorage = (await chrome.storage.local.get('projects')).projects.p1.files.map((f) => f.role || '-').join(',');
+    out.paalalaPagkatapos = teksto('.projbox .dim').find((t) => t.startsWith('Markahan')) || '(wala na — tama)';
+  } catch (e) {
+    out.err = String(e && e.stack ? e.stack.split('\n').slice(0, 2).join(' ') : e);
+  }
+  document.title = 'RESULT:' + JSON.stringify(out);
+}, 900);
+</script>

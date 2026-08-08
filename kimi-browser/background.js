@@ -189,8 +189,10 @@ const WRITE_NOTE = `
 NASA WRITE MODE KA. Ang gawain ay PAGSULAT, at may limang tool ka lang — hindi ka
 maliligaw. Ganito ka magtatrabaho:
 
-1. Kung may dokumento sa project, tumawag muna ng \`search_files\` para sa mga tunay
-   na detalye (NAP, tono, mga bawal, target keyword). Huwag mag-imbento ng facts.
+1. Ang 📌 master prompt at ang 🎨 template ay NASA SYSTEM PROMPT MO NA nang buo —
+   huwag mo nang hanapin ang mga iyon, nabasa mo na sila. Ang \`search_files\` ay para
+   LANG sa ibang dokumento (na-verify na facts, listahan ng keyword, research notes).
+   Huwag mag-imbento ng facts.
 2. Tumawag ng \`write_document\` KADA SEKSYON — 300 hanggang 600 salita bawat tawag,
    markdown na may "## " na heading. Sunod-sunod hanggang buo ang artikulo.
 3. HUWAG isulat ang laman ng artikulo sa sagot mo. Kahit isang talata. Ang buong
@@ -211,12 +213,19 @@ keyword at ng website ng kliyente. Ang keyword na "mattress in a box dimensions 
 ay nangangahulugang English ang artikulo.
 
 DISENYO NG ARTIKULO:
-Kung may dokumento sa project na naglalaman ng design system, template, o master prompt
-(hanapin ang mga salitang "design system", "CSS", "class", "prompt", "template"),
-SUNDIN ITO NANG BUO. Ang ibig sabihin niyon: isulat ang seksyon bilang TUNAY NA HTML na
-may mga klaseng nakasaad doon — hindi markdown. Kinikilala ito nang kusa at itinatago
-nang buo kasama ang mga klase, style, at script.
-Kung walang design system sa project, markdown lang — huwag mag-imbento ng klase.`;
+Kapag may 🎨 TEMPLATE NG DISENYO sa system prompt mo, iyon ang TOTOONG CSS ng isang
+naipadala nang artikulo. Isulat ang bawat seksyon bilang TUNAY NA HTML gamit ang
+EKSAKTONG mga klaseng nakikita mo doon — hindi markdown, at hindi bagong klaseng ikaw
+ang gumawa. Ilagay ang buong <style> block sa UNANG tawag mo sa write_document, kinopya
+nang walang binabago, tapos markup na lang ang sunod na mga seksyon.
+
+Ang pagkopya ay HINDI paghango ng ideya. Kung ang template ay may .hq-goldframe na may
+border-radius:13px, ang iyo ay .hq-goldframe na may border-radius:13px — hindi
+.gold-frame, hindi 12px, hindi "katulad nito". Ang kliyente ay may buong blog na dapat
+magmukhang iisa; ang isang naiibang artikulo ay sira, hindi bagong disenyo.
+
+Kapag WALANG 🎨 template, markdown lang — at sabihin mo sa user na walang disenyong
+masusunod. Huwag mag-imbento ng palette o klase at ipakita iyon na parang sa kliyente.`;
 
 const PLAN_NOTE = `
 
@@ -1211,7 +1220,7 @@ chrome.runtime.onConnect.addListener((port) => {
     // babagsak, uubusin niya ang mga hakbang sa pagsubok — nakita natin ang limang
     // sunod-sunod na pagkabigo sa isang totoong takbo. Mas mabuting wala na lang ito
     // at malaman niya agad na wala siyang dokumentong mababasa.
-    const projNote = await projectPrompt(msg.sessionId);
+    const projNote = await projectPrompt(msg.sessionId, mode);
     const mayProject = !!projNote;
     if (!mayProject) {
       send({
@@ -1764,6 +1773,7 @@ chrome.runtime.onConnect.addListener((port) => {
                 words: result.mga_salita,
                 sections: result.mga_seksyon,
                 outline: result.balangkas,
+                design: result.may_disenyo,
               });
             }
             send({ type: 'tool', name, args: { title: args.title, words: result?.mga_salita } });
