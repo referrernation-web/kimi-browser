@@ -294,6 +294,37 @@
       .starters .scard:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
       .starters .scard .si { font-size: 15px; flex: none; }
 
+      /* --- ARTICLE WIZARD: tatlong tanong imbes na blangkong kahon --- */
+      .wizard {
+        display: grid; gap: 10px; padding: 13px;
+        border: 1px solid var(--accent); border-radius: 11px;
+        background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+      }
+      .wizard > b { font-size: 13.5px; }
+      .wizard .wfield { display: grid; gap: 6px; }
+      .wizard .wlabel { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+      .wizard .wn {
+        width: 18px; height: 18px; border-radius: 50%; flex: none; display: grid; place-items: center;
+        background: var(--accent); color: #fff; font: 700 10px/1 ui-monospace, monospace;
+      }
+      .wizard .wchips { display: flex; gap: 5px; flex-wrap: wrap; }
+      .wizard .wchip {
+        display: grid; gap: 1px; text-align: left; padding: 6px 10px;
+        border: 1px solid var(--line); border-radius: 8px; background: var(--field);
+        font-size: 11.5px; font-weight: 600; line-height: 1.3;
+      }
+      .wizard .wchip span { font-weight: 400; font-size: 9.5px; color: var(--dim); }
+      .wizard .wchip.sm { padding: 5px 11px; font-weight: 500; }
+      .wizard .wchip.on {
+        border-color: var(--accent); color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, var(--field));
+      }
+      .wizard .wgo {
+        border-color: var(--accent); color: #fff; background: var(--accent);
+        font-weight: 700; padding: 9px; font-size: 12.5px;
+      }
+      .wizard .wgo:hover { background: var(--accent); opacity: .9; }
+
       /* --- MODE HINT: isang linyang alok bago mo pa ipadala --- */
       .modehint {
         display: flex; gap: 6px; align-items: center; margin-bottom: 6px;

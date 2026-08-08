@@ -193,8 +193,7 @@ function renderLog() {
 // Dito ipinapakita kung ANO ang kaya niya, mapipindot at agad tatakbo. Kapag may
 // naka-attach na project, ang mga alok ay hinuhugot mula sa uri ng trabaho doon.
 const STARTERS = [
-  { icon: '📝', label: 'Sumulat ng artikulo', mode: 'write',
-    text: 'Sumulat ka ng 800-salitang artikulo tungkol sa ' },
+  { icon: '📝', label: 'Sumulat ng artikulo', wizard: true },
   { icon: '🔍', label: 'Ihambing ang mga presyo', mode: null,
     text: 'Hanapan mo ako ng pinakasulit na ' },
   { icon: '📈', label: 'Itaas ang RankMath score', mode: null,
@@ -206,6 +205,144 @@ const STARTERS = [
   { icon: '👀', label: 'Basahin ang page na ito', mode: null,
     text: 'Basahin mo ang page na ito at sabihin ang mahahalagang punto.' },
 ];
+
+// --- ARTICLE WIZARD: tatlong tanong, tapos siya na ang bahala ---
+// Ang VA ay hindi dapat mag-alala kung anong mode, aling project, at paano bubuoin ang
+// utos. Pipili lang siya ng tatlong bagay; ang wizard ang bahala sa lahat ng iyon.
+const ART_TYPES = [
+  { id: 'comparison', label: 'Paghahambing', hint: 'X vs Y, best-of, roundup' },
+  { id: 'howto', label: 'Paano gawin', hint: 'gabay, hakbang-hakbang' },
+  { id: 'explainer', label: 'Paliwanag', hint: 'ano ito, bakit mahalaga' },
+  { id: 'local', label: 'Lokal na serbisyo', hint: 'para sa isang lugar' },
+];
+const ART_LENGTHS = [800, 1500, 2500];
+
+async function articleWizard(replaceBox) {
+  const F = await import('./files.js');
+  const projects = await F.listProjects();
+  const attached = await F.projectForSession(active()?.id);
+
+  const box = document.createElement('div');
+  box.className = 'wizard';
+  if (replaceBox) replaceBox.replaceWith(box);
+  else log.append(box);
+
+  const state = { project: attached?.id || Object.keys(projects)[0] || '', type: 'comparison', words: 1500, topic: '' };
+
+  const head = document.createElement('b');
+  head.textContent = '📝 Bagong artikulo';
+  const sub = document.createElement('div');
+  sub.className = 'dim';
+  sub.textContent = 'Tatlong bagay lang ang kailangan ko. Ako na ang bahala sa mode at sa utos.';
+  box.append(head, sub);
+
+  const field = (n, label) => {
+    const w = document.createElement('div');
+    w.className = 'wfield';
+    const l = document.createElement('div');
+    l.className = 'wlabel';
+    l.innerHTML = `<span class="wn">${n}</span>${label}`;
+    w.append(l);
+    box.append(w);
+    return w;
+  };
+
+  // 1 — Kliyente
+  const f1 = field(1, 'Para kaninong kliyente?');
+  const ids = Object.keys(projects);
+  if (ids.length) {
+    const sel = document.createElement('select');
+    for (const id of ids) sel.append(new Option(`${projects[id].name} (${projects[id].files.length} dokumento)`, id));
+    sel.append(new Option('— wala, general lang —', ''));
+    sel.value = state.project;
+    sel.onchange = () => (state.project = sel.value);
+    f1.append(sel);
+  } else {
+    const none = document.createElement('div');
+    none.className = 'dim';
+    none.textContent = 'Wala ka pang project. Pwede pa ring magsulat, pero mas maganda kung may SOP at brand guidelines siyang mababasa — gawan mo sa 📁 Projects.';
+    f1.append(none);
+  }
+
+  // 2 — Paksa
+  const f2 = field(2, 'Anong paksa o keyword?');
+  const topic = document.createElement('input');
+  topic.placeholder = 'hal. best mattress in a box canada';
+  topic.oninput = () => (state.topic = topic.value.trim());
+  f2.append(topic);
+
+  // 3 — Uri at haba
+  const f3 = field(3, 'Anong uri at gaano kahaba?');
+  const chips = document.createElement('div');
+  chips.className = 'wchips';
+  for (const t of ART_TYPES) {
+    const c = document.createElement('button');
+    c.className = 'wchip' + (t.id === state.type ? ' on' : '');
+    c.innerHTML = `${t.label}<span>${t.hint}</span>`;
+    c.onclick = () => {
+      state.type = t.id;
+      for (const x of chips.children) x.classList.toggle('on', x === c);
+    };
+    chips.append(c);
+  }
+  const lens = document.createElement('div');
+  lens.className = 'wchips';
+  for (const w of ART_LENGTHS) {
+    const c = document.createElement('button');
+    c.className = 'wchip sm' + (w === state.words ? ' on' : '');
+    c.textContent = `${w.toLocaleString()} salita`;
+    c.onclick = () => {
+      state.words = w;
+      for (const x of lens.children) x.classList.toggle('on', x === c);
+    };
+    lens.append(c);
+  }
+  f3.append(chips, lens);
+
+  // Simulan
+  const go = document.createElement('button');
+  go.className = 'wgo';
+  go.textContent = '▶ Simulan ang pagsulat';
+  go.onclick = async () => {
+    if (!state.topic) {
+      topic.focus();
+      topic.style.borderColor = 'var(--err)';
+      return;
+    }
+    if (state.project) await F.attachSession(active().id, state.project);
+    $('mode').value = 'write';
+    await chrome.storage.local.set({ mode: 'write' });
+    showHint();
+
+    const shape = {
+      comparison: 'Paghahambing ito, kaya kailangan ng comparison table na may hindi bababa sa 3 hilera, at malinaw na "best for" kada pagpipilian.',
+      howto: 'Gabay ito, kaya sunod-sunod na hakbang na may malinaw na numero, at kung ano ang kailangan bago magsimula.',
+      explainer: 'Paliwanag ito, kaya direktang sagot sa unang pangungusap ng bawat seksyon, tapos ang detalye.',
+      local: 'Para ito sa isang lugar, kaya kailangang tumpak ang lahat ng lokal na detalye — pangalan, address, at saklaw ng serbisyo.',
+    }[state.type];
+
+    const proj = state.project ? projects[state.project] : null;
+    const prompt =
+      `Sumulat ka ng ${state.words}-salitang artikulo tungkol sa "${state.topic}".\n\n` +
+      `${shape}\n\n` +
+      (proj
+        ? `Gamitin ang project na "${proj.name}". BAGO ka magsulat, mag-search_files para sa tono, ` +
+          `mga bawal, at mga na-verify na detalye — huwag mag-imbento ng anumang facts, presyo, o review.\n\n`
+        : '') +
+      `Isulat ito kada seksyon gamit ang write_document, 300-600 salita bawat tawag. ` +
+      `Huwag isulat ang laman sa sagot mo.`;
+
+    box.remove();
+    $('ask').value = prompt;
+    submit(false);
+  };
+  box.append(go);
+
+  const tip = document.createElement('div');
+  tip.className = 'dim';
+  tip.textContent = 'Pagkatapos: lalabas ang card na may preview at mga Download (DOCX, PDF, HTML). Basahin mo muna bago i-publish.';
+  box.append(tip);
+}
 
 async function showStarters() {
   const box = document.createElement('div');
@@ -240,6 +377,7 @@ async function showStarters() {
     tx.textContent = s.label;
     btn.append(ic, tx);
     btn.onclick = () => {
+      if (s.wizard) return articleWizard(box); // ang pagsulat ay may sariling gabay
       if (s.mode) {
         $('mode').value = s.mode;
         chrome.storage.local.set({ mode: s.mode });

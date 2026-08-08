@@ -3,6 +3,23 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.20.0 (article wizard — hindi na malilito ang VA)
+
+Dati, kailangang alam ng VA ang apat na bagay bago makasulat: aling mode, aling project,
+ano ang itatype, at gaano kahaba. Ngayon, **tatlong tanong** na lang sa isang form.
+
+- Pindutin ang **📝 Sumulat ng artikulo** sa mga starter → lalabas ang wizard.
+- **1. Para kaninong kliyente?** — dropdown ng mga project mo, sinasabi kung ilang
+  dokumento ang gagamitin.
+- **2. Anong paksa o keyword?** — isang linya lang.
+- **3. Anong uri at gaano kahaba?** — mapipinduting chips (Paghahambing, Paano gawin,
+  Paliwanag, Lokal) at haba (800 / 1,500 / 2,500).
+- Pindutin ang **▶ Simulan ang pagsulat** at siya na ang bahala: ini-attach ang project,
+  nililipat sa 📝 Write mode, at binubuo ang buong utos kasama ang tagubiling mag-search_files
+  muna bago magsulat para walang imbentong facts.
+
+May kasama ring **gabay para sa VA** (5 hakbang na may larawan) na maipapasa sa team.
+
 ## Anong bago sa v0.19.1 (mas madaling gamitin)
 
 Tatlong bagay na hinango sa mga totoong nasagasaan namin habang ginagawa ito:
