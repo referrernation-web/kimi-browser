@@ -256,6 +256,28 @@
       .doccard .docbody blockquote { margin: 0 0 6px; padding-left: 9px; border-left: 2px solid var(--line); color: var(--dim); }
       .doccard .opts button { font-size: 11.5px; }
 
+      /* --- PROJECTS: mga dokumentong ibinibigay mo --- */
+      .projbox { border: 1px solid var(--line); border-radius: 10px; padding: 11px; background: var(--panel); display: grid; gap: 9px; }
+      .projbox > b { font-size: 13px; }
+      .projrow {
+        display: flex; gap: 7px; align-items: center; border: 1px solid var(--line);
+        border-radius: 9px; padding: 8px 10px; background: var(--bg);
+      }
+      .projrow.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--bg)); }
+      .projrow b { font-size: 12.5px; }
+      .projrow .n { color: var(--dim); font-size: 10.5px; flex: 1; }
+      .projbox textarea { width: 100%; height: 62px; resize: vertical; font-size: 12px; }
+      .filerow { display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; padding: 3px 0 3px 10px; }
+      .filerow .fn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .filerow .fm { color: var(--dim); font-size: 10.5px; font-family: ui-monospace, monospace; }
+      .filerow button { padding: 0 5px; border: none; background: none; color: var(--dim); }
+      .filerow button:hover { color: var(--err); background: none; }
+      .dropzone {
+        border: 1px dashed var(--line); border-radius: 9px; padding: 12px; text-align: center;
+        color: var(--dim); font-size: 11.5px; cursor: pointer;
+      }
+      .dropzone.over { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
       /* --- KNOWLEDGE HUB rows --- */
       .hubrow { display: flex; gap: 6px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--line); }
       .hubrow:last-child { border-bottom: none; }
@@ -396,6 +418,7 @@
         <div class="mi"><button id="teach" title="Teaching captions sa page — para matuto ang nanonood">🎓</button><span>Teach</span></div>
         <div class="mi"><button id="rec" title="Record shortcut">⏺</button><span>Record</span></div>
         <div class="mi"><button id="sched" title="Scheduled tasks">⏰</button><span>Schedule</span></div>
+        <div class="mi"><button id="proj" title="Projects at mga dokumento — pagkukuhaan ng data">📁</button><span>Projects</span></div>
         <div class="mi"><button id="conn" title="MCP connectors — Gmail, Sheets, atbp.">🔌</button><span>Connect</span></div>
         <div class="mi"><button id="stats" title="Usage per model">📊</button><span>Usage</span></div>
         <div class="mi"><button id="mem" title="Ang natutunan niya">🧠</button><span>Memory</span></div>

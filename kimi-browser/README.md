@@ -3,6 +3,30 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.16.0 (📁 Projects at file upload)
+
+Kung ang knowledge hub ay ang natutunan NIYA, ang projects naman ay ang kaalamang
+IKAW ang nagbibigay: ang SOP mo, ang brand guidelines, ang mga na-verify na facts ng
+kliyente. Isang project kada kliyente o kada uri ng trabaho.
+
+- **📁 sa ⋯ menu** — gumawa ng project, maglagay ng tagubilin (sinusunod niya sa buong
+  gawain), at mag-upload ng dokumento sa pamamagitan ng click o drag-and-drop.
+- **Suportadong format:** `.txt`, `.md`, `.csv`, `.json`, `.html`, at **`.docx` at
+  `.pptx`** — nababasa ang tunay na Word at PowerPoint file gamit ang native na
+  `DecompressionStream` ng Chrome, walang external library. (Ang PDF ay hindi pa
+  suportado — sinasabi nito nang malinaw imbes na magbalik ng basura.)
+- **`search_files` tool** — ito ang susi sa "hindi lumalaki ang konteksto": ang
+  system prompt ay may PANGALAN lang ng mga dokumento, hindi ang laman. Kapag may
+  kailangan siya, hinahanap niya ito at mga tumutugmang bahagi lang ang pumapasok
+  (~2,500 karakter), hindi ang buong sampung-pahinang brief.
+- Nakalagay sa system prompt na ang mga dokumento ang **pinagmumulan ng katotohanan** —
+  maghanap muna bago manghula o magtanong.
+- Ang bawat file ay nasa sariling storage key, kaya targeted ang pagbasa. Idinagdag ang
+  `unlimitedStorage` permission para kasya ang malalaking dokumento.
+
+> Kailangan ng buong reload (Remove + Load unpacked) — may bagong `unlimitedStorage`
+> permission.
+
 ## Anong bago sa v0.15.0 (knowledge hub at article generator)
 
 ### 🧠 Persistent learning na HINDI nagpapalaki ng context

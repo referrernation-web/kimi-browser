@@ -837,6 +837,149 @@ async function mcpPing(url, token) {
   return (d?.result?.tools || []).length;
 }
 
+// --- 📁 PROJECTS: ang kaalamang IKAW ang nagbibigay ---
+// Isang project kada kliyente o uri ng trabaho: may sariling tagubilin at mga
+// dokumento. Naka-attach ito sa usapan, at ang laman ay hinahanap ng search_files —
+// hindi ibinubuhos sa konteksto.
+$('proj').onclick = async () => {
+  $('menu').style.display = 'none';
+  const F = await import('./files.js');
+
+  const box = document.createElement('div');
+  box.className = 'projbox';
+  const head = document.createElement('b');
+  const body = document.createElement('div');
+  box.append(head, body);
+
+  const sess = active();
+  let openId = null; // aling project ang nakabukas ang detalye
+
+  async function paint() {
+    const ps = await F.listProjects();
+    const attached = sess ? (await F.projectForSession(sess.id))?.id : null;
+    const ids = Object.keys(ps);
+    head.textContent = `📁 Projects (${ids.length})`;
+    body.replaceChildren();
+
+    for (const id of ids) {
+      const p = ps[id];
+      const row = document.createElement('div');
+      row.className = 'projrow' + (attached === id ? ' active' : '');
+      const nm = document.createElement('b');
+      nm.textContent = p.name;
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = `${p.files.length} dokumento${p.instructions ? ' · may tagubilin' : ''}`;
+
+      const use = document.createElement('button');
+      use.textContent = attached === id ? '✓ Gamit' : 'Gamitin';
+      use.title = 'I-attach sa usapang ito';
+      use.onclick = async () => {
+        await F.attachSession(sess.id, attached === id ? null : id);
+        paint();
+      };
+      const open = document.createElement('button');
+      open.textContent = openId === id ? '▾' : '▸';
+      open.onclick = () => { openId = openId === id ? null : id; paint(); };
+      const del = document.createElement('button');
+      del.textContent = '×';
+      del.title = 'Burahin ang project';
+      del.onclick = async () => { await F.deleteProject(id); paint(); };
+
+      row.append(nm, n, use, open, del);
+      body.append(row);
+      if (openId === id) body.append(detailPanel(p, F, paint));
+    }
+
+    const add = document.createElement('button');
+    add.textContent = '＋ Bagong project';
+    add.onclick = async () => {
+      const name = window.prompt('Pangalan ng project (hal. "Aire One Peel" o "Hamuq articles"):');
+      if (!name) return;
+      const p = await F.createProject(name);
+      openId = p.id;
+      if (sess) await F.attachSession(sess.id, p.id);
+      paint();
+    };
+    body.append(add);
+
+    if (!ids.length) {
+      const hint = document.createElement('div');
+      hint.className = 'dim';
+      hint.textContent = 'Isang project kada kliyente o uri ng trabaho. Ilagay dito ang SOP, brand guidelines, o mga na-verify na facts — hahanapin niya ito imbes na manghula.';
+      body.append(hint);
+    }
+  }
+
+  function detailPanel(p, F, repaint) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'padding:4px 0 8px 10px;display:grid;gap:7px';
+
+    const ta = document.createElement('textarea');
+    ta.placeholder = 'Tagubilin ng project — sundin niya ito sa buong gawain (hal. tono ng pagsulat, mga bawal, format ng output).';
+    ta.value = p.instructions || '';
+    ta.onchange = () => F.setInstructions(p.id, ta.value);
+    wrap.append(ta);
+
+    for (const f of p.files) {
+      const fr = document.createElement('div');
+      fr.className = 'filerow';
+      const fn = document.createElement('span');
+      fn.className = 'fn';
+      fn.textContent = '📄 ' + f.name;
+      const fm = document.createElement('span');
+      fm.className = 'fm';
+      fm.textContent = `${Math.round(f.size / 1024)}KB · ${f.chunks} bahagi`;
+      const x = document.createElement('button');
+      x.textContent = '×';
+      x.onclick = async () => { await F.deleteFile(p.id, f.id); repaint(); };
+      fr.append(fn, fm, x);
+      wrap.append(fr);
+    }
+
+    // Upload: pindutin o i-drag. Ang pagbabasa ay nangyayari DITO sa panel; ang
+    // teksto lang ang napupunta sa storage, hindi ang binary.
+    const zone = document.createElement('div');
+    zone.className = 'dropzone';
+    zone.textContent = 'Mag-click o mag-drag ng file dito (.txt .md .csv .docx .pptx .json .html)';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.style.display = 'none';
+    input.accept = '.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.log,.docx,.pptx';
+
+    const take = async (fileList) => {
+      for (const file of fileList) {
+        zone.textContent = `Binabasa ang ${file.name}…`;
+        try {
+          const buf = new Uint8Array(await file.arrayBuffer());
+          const text = await F.extractText(file.name, buf);
+          const r = await F.addFile(p.id, file.name, text);
+          zone.textContent = r.error ? `✗ ${file.name}: ${r.error}` : `✓ ${file.name} — ${r.mga_tipak} bahagi`;
+        } catch (e) {
+          zone.textContent = `✗ ${file.name}: ${e.message}`;
+        }
+      }
+      setTimeout(repaint, 1200);
+    };
+    zone.onclick = () => input.click();
+    input.onchange = () => take([...input.files]);
+    zone.ondragover = (e) => { e.preventDefault(); zone.classList.add('over'); };
+    zone.ondragleave = () => zone.classList.remove('over');
+    zone.ondrop = (e) => {
+      e.preventDefault();
+      zone.classList.remove('over');
+      take([...e.dataTransfer.files]);
+    };
+    wrap.append(zone, input);
+    return wrap;
+  }
+
+  await paint();
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+};
+
 // --- GOOGLE CARD: ang one-click Connect, tulad ng nasa Claude ---
 // Ang OAuth ay dumadaan sa Chrome mismo, kaya walang server na kailangan. Ang tanging
 // hinihingi ay isang beses na client ID mula sa Google Cloud ng user — hindi natin
@@ -1101,6 +1244,7 @@ const SAYS = {
   _loop: (a) => `⛔ Hinarangan ang paulit-ulit na ${a.tool} (ika-${a.n}) — nagsasayang na ito`,
   _hub: (a) => `🧠 Pinagsama ang mga aral sa ${a.domain} (${a.merged} → ${a.into})`,
   recall: (a) => `Binabalikan ang mga aral: "${String(a.query).slice(0, 40)}"`,
+  search_files: (a) => `📁 Hinahanap sa dokumento: "${String(a.query).slice(0, 40)}"`,
   write_document: (a) => `📄 Sinusulat${a.title ? ` ang "${String(a.title).slice(0, 40)}"` : ''}${a.words ? ` — ${a.words} salita na` : ''}`,
   _mcp: (a) => `🔌 MCP konektado — ${a.n} connector tools`,
   _google: () => '📧 Gmail at Sheets konektado',

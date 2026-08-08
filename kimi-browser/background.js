@@ -2,6 +2,7 @@ import { needsApproval, schemaFor, runTool, setOverlay, setStatus, setCaption, c
 import { hubAdd, hubPromptFor, similarity, needsConsolidation, consolidationInput, applyConsolidation } from './hub.js';
 import { GOOGLE_TOOLS, GOOGLE_TOOL_NAMES, runGoogleTool } from './google.js';
 import { setDocSession } from './docs.js';
+import { setFileSession, projectPrompt } from './files.js';
 
 // --- PROVIDERS ---
 // Ang DashScope (Alibaba) ay may OpenAI-compatible endpoint, kaya iisa ang daloy
@@ -65,6 +66,12 @@ na wala sa usapan, kaya kahit 3,000 salita ay hindi nagpapalaki ng konteksto. Pa
 ng huling seksyon, sabihin lang na handa na ito at may mga export button (.docx, .pptx,
 .md) sa preview card ng user. Kung ipapasok ito sa WordPress, gamitin ang paste_large
 na may from_document: true — hindi mo na kailangang isulat muli ang laman.
+
+MGA DOKUMENTO NG PROJECT: kapag may nakalista sa itaas na dokumento ng project, iyon
+ang PINAGMUMULAN NG KATOTOHANAN — hindi ang haka-haka mo. Bago sumagot tungkol sa
+kliyente, sa SOP, o sa anumang bagay na malamang nasa dokumento, tumawag muna ng
+\`search_files\`. Mas mabuting maghanap kaysa manghula. Kung wala talaga doon, saka mo
+sabihing wala kang mahanap.
 
 MAY KNOWLEDGE HUB KA: may \`recall\` tool para hanapin ang mga naitala mong aral, kahit
 galing sa ibang site. Gamitin ito kapag may error na parang naranasan mo na, o bago
@@ -1116,6 +1123,7 @@ chrome.runtime.onConnect.addListener((port) => {
     // purple group ng session na ito, at doon lang kikilos ang agent.
     await ensureScope(msg.sessionId, msg.title);
     setDocSession(msg.sessionId); // ang document buffer ay per-session
+    setFileSession(msg.sessionId); // ganoon din ang naka-attach na project
     resetApprovals(); // ang Adaptive mode ay nagsisimula sa wala sa bawat gawain
 
     // Ang violet na ilaw sa toolbar icon — kita kahit sarado ang panel, para
@@ -1169,7 +1177,9 @@ chrome.runtime.onConnect.addListener((port) => {
     const wpNote = (await workingUrl()).includes('wp-admin') ? WP_PLAYBOOK : '';
     const system =
       `Ang model na tumatakbo ngayon: ${model}. Kapag tinanong kung sino ka, ito ang sabihin mo — huwag magpanggap na ibang model.\n\n` +
-      SYSTEM + modeNote + wpNote + flowNote + (await hubPromptFor(runDomain, taskText));
+      SYSTEM + modeNote + wpNote + flowNote +
+      (await projectPrompt(msg.sessionId)) +
+      (await hubPromptFor(runDomain, taskText));
 
     // EXPLICIT CACHE: ang system prompt ay pareho sa BAWAT hakbang, kaya perpekto
     // itong i-cache. Sa Alibaba (Token Plan/DashScope), ang `cache_control` ay
@@ -1736,6 +1746,7 @@ chrome.runtime.onConnect.addListener((port) => {
                 plan: 'Nagpaplano…',
                 write_document: 'Sinusulat ang dokumento…',
                 recall: 'Binabalikan ang mga aral…',
+                search_files: 'Hinahanap sa mga dokumento…',
               })[name] || (name.startsWith('mcp_') ? `Connector: ${name.slice(4)}` : name)
             );
             // ANG ARAL SA PAGE: hindi sapat ang "pinipindot ang X" — ang natututo lang

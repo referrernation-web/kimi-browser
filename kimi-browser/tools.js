@@ -2,6 +2,7 @@ import { readPage, extractPage, clickRef, typeRef, scrollPage, overlay, listenPa
          hookConsole, readConsole, pasteLarge, recorderStart, recorderStop, applyStep, pageSig } from './page-fns.js';
 import { hubAdd, recall as hubRecall } from './hub.js';
 import { docAppend, docAsHtml } from './docs.js';
+import { searchFiles, getFileSession } from './files.js';
 
 // Mga tool na nagbabago ng kalagayan sa labas ng browser.
 export const WRITES = new Set(['click', 'type', 'navigate', 'new_tab', 'close_tab', 'paste_large', 'run_shortcut', 'schedule_task']);
@@ -217,6 +218,22 @@ export const SCHEMA = [
           replace_section: { type: 'number', description: 'Index ng seksyong papalitan, para sa rebisyon (0 = una).' },
         },
         required: ['append'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_files',
+      description:
+        'Hanapin ang kailangan mo sa mga dokumentong inilagay ng user sa project (SOP, brand guidelines, na-verify na facts, brief). Ibinabalik lang ang mga TUMUTUGMANG bahagi, hindi ang buong file — kaya mura at mabilis. GAMITIN ITO bago manghula o magtanong tungkol sa bagay na malamang nasa dokumento na. Nakikita mo ang listahan ng dokumento sa itaas; maghanap gamit ang mga salitang inaasahan mong nasa loob.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Ang hinahanap mo, sa mga salitang inaasahan mong nasa dokumento.' },
+          file: { type: 'string', description: 'Opsyonal: pangalan (o bahagi nito) ng isang dokumento, para doon lang maghanap.' },
+        },
+        required: ['query'],
       },
     },
   },
@@ -649,6 +666,8 @@ export async function runTool(name, args) {
       return hubRecall(args.query);
     case 'write_document':
       return docAppend(args);
+    case 'search_files':
+      return searchFiles(getFileSession(), args.query, args.file);
     case 'read_page':
       // 9,000 karakter ang badyet — ~25% mas kaunting input tokens kada basa,
       // mas mabilis magsimula ang bawat tawag. Sapat pa rin para sa karamihan ng page.
