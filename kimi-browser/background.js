@@ -536,6 +536,29 @@ function totalChars(msgs) {
   );
 }
 
+// ANG SUKAT NA MAHALAGA SA COMPACTION: ang USAPAN lang, hindi ang system prompt.
+//
+// Ang compaction ay kayang paliitin ang usapan LAMANG. Ang system prompt ay
+// hindi nagagalaw — naka-cache ito at doon nakalagay ang master prompt at ang
+// template ng disenyo. Kapag isinama ito sa sukatan, nagsisimula na tayong lampas
+// sa hangganan bago pa may sabihin ang user, at HINDI NA ITO BABABA KAILANMAN.
+// Ang bunga: tatawag ng autoCompact sa bawat hakbang habambuhay, at bawat tawag
+// ay isang dagdag na model call na walang mababawas.
+//
+// Ito ay regression na naipasok noong v0.23.0 nang lumaki ang system prompt mula
+// ~12k tungong ~117k karakter. Walang test na humuli nito; ito na ngayon ang test.
+const convoChars = (msgs) => totalChars(msgs.slice(1));
+
+// Ang totoong hangganan ng mga modelong ginagamit dito ay mas malaki kaysa sa
+// dating 110,000 na palagay: ang qwen3.8-max ay ~256k token (~900k karakter).
+// Sa lumang halaga, nag-cocompact ang bawat modelong hindi k3 sa ikaapat na bahagi
+// lang ng kaya nito. Sa isang totoong sesyon, dalawang beses itong tumakbo
+// (−71k at −69k na karakter) sa isang usapang kasya naman sana nang buo.
+const CTX_DEFAULT = 240000;
+
+// Nakalantad para masukat ng test — ito ang mismong bagay na nasira nang tahimik.
+export const _bgInternals = { totalChars, convoChars, CTX_CHARS, CTX_DEFAULT };
+
 // --- AUTO-COMPACTION ---
 // Bago mapuno ang konteksto, ini-summarize ng model mismo ang naunang bahagi ng
 // usapan — ang buod lang ang pinapanatili, kasama ang huling ilang mensahe. Samantala,
@@ -1585,6 +1608,16 @@ chrome.runtime.onConnect.addListener((port) => {
       try {
         const domain = await currentDomain();
         if (!domain) return;
+        // ANG TAB NA BUKAS AY HINDI ANG GAWAIN. Ang currentDomain() ay nagbabalik ng
+        // kung ano mang tab ang nasa scope group — kahit hindi ito ginalaw ng gawain.
+        // Sa isang totoong sesyon tungkol sa SEO ng Hamuq, na puro search_files sa
+        // mga lokal na dokumento, "natutunan ang daloy sa mail.google.com" dahil Gmail
+        // ang nakabukas. Ang natutunan ay walang kinalaman sa Gmail, at ipapakain ito
+        // sa susunod na tunay na gawain sa Gmail. Bago mag-angkin ng aral para sa
+        // isang site, dapat may TUNAY na hakbang na ginawa doon.
+        const gumalaw = new Set(['navigate', 'click', 'type', 'read_page', 'extract', 'paste_large', 'screenshot', 'scroll', 'new_tab']);
+        const ginamit = messages.some((m) => (m.tool_calls || []).some((c) => gumalaw.has(c.function?.name)));
+        if (!ginamit) return;
         const res = await fetch(baseUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -1652,7 +1685,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // 60% ng konteksto, saka pumuputol nang isang beses. Sa pagitan, append-only
         // ang usapan at buhay ang cache. (Diskarte mula sa Manus context engineering.)
         let saved = 0;
-        if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.6) {
+        if (convoChars(messages) > (CTX_CHARS[routedModel] || CTX_DEFAULT) * 0.6) {
           saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages) + compactDocArgs(messages);
         }
         if (saved > 2000) send({ type: 'tool', name: '_compact', args: { saved } });
@@ -1672,7 +1705,7 @@ chrome.runtime.onConnect.addListener((port) => {
         }
 
         // AUTO-COMPACTION: bago mapuno ang konteksto, i-summarize ang naunang bahagi.
-        if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.85) {
+        if (convoChars(messages) > (CTX_CHARS[routedModel] || CTX_DEFAULT) * 0.85) {
           const freed = await autoCompact(messages, baseUrl, apiKey, routedModel, abort.signal, async (a) => {
             await hubAdd({
               text: a.note, domain: a.scope === 'site' ? runDomain : '',
@@ -1687,7 +1720,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // lalampas sa konteksto ng maliit — sticky na sa gawaing ito.
         if (routedModel !== strongModel) {
           const needStrong =
-            failStreak >= 2 || totalChars(messages) > (CTX_CHARS[CHEAP_MODEL] || 110000) * 0.9;
+            failStreak >= 2 || convoChars(messages) > (CTX_CHARS[CHEAP_MODEL] || CTX_DEFAULT) * 0.9;
           if (needStrong) {
             routedModel = strongModel;
             if (!escalatedOnce) {

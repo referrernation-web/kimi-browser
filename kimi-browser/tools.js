@@ -186,7 +186,7 @@ export const SCHEMA = [
     function: {
       name: 'remember',
       description:
-        'Itala ang isang bagay na magiging kapaki-pakinabang sa susunod. Gamitin ito kapag may natuklasan kang hindi halata at magtitipid ng hakbang sa susunod — kung saan nakatago ang isang buton, ilang hakbang ang checkout, anong pangalan ang ginagamit ng site sa isang bagay. Gamitin din para sa mga bagay na sinabi ng user tungkol sa sarili o sa gusto niya. HUWAG itala ang panandaliang bagay: presyo, bilang ng resulta, laman ng page ngayon.',
+        'Itala ang isang bagay na magiging kapaki-pakinabang sa susunod. Gamitin ito kapag may natuklasan kang hindi halata at magtitipid ng hakbang sa susunod — kung saan nakatago ang isang buton, ilang hakbang ang checkout, anong pangalan ang ginagamit ng site sa isang bagay. Gamitin din para sa mga bagay na sinabi ng user tungkol sa sarili o sa gusto niya. HUWAG itala ang panandaliang bagay: presyo, bilang ng resulta, laman ng page ngayon. At HUWAG na HUWAG itala ang pagpalya ng SARILI MONG mga tool ("hindi gumagana ang navigate", "kailangan ng scope group", "hindi ma-access ang site na ito") — mga depekto iyon sa loob ko mismo, hindi katotohanan tungkol sa mundo. Kapag itinala mo iyon, ituturo nito sa iyo na huwag nang subukan kahit naayos na ito. Iulat ang gayong pagpalya sa user; huwag itong tandaan.',
       parameters: {
         type: 'object',
         properties: {

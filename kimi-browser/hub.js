@@ -108,8 +108,25 @@ function mk(text, domain, kind, source, ts) {
   };
 }
 
+// MGA ARAL NA GALING SA SARILING DEPEKTO. Bago ang v0.25, sumusuko ang ensureScope
+// kapag chrome:// ang bukas na tab, at ang sabi ay "Walang scope group pa." Naniwala
+// ang agent na iyon ay katotohanan tungkol sa mundo at itinala ito nang permanente:
+//   "Ang live browser ay nangangailangan ng scope group setup"
+//   "hamuq.com/sitemap.xml ay hindi ma-access (walang scope group)"
+// Hindi sapat ang ayusin ang bug. Habang nandiyan ang mga talang ito, ipinapasok sila
+// sa bawat system prompt at sinasabihan siyang huwag nang subukan — kaya patuloy pa
+// ring mali ang gawi niya kahit gumagana na ang mekanismo. Ang maling aral ay mas
+// mapanganib kaysa sa walang aral: mukha itong karanasan.
+const MALING_ARAL = /scope group|walang scope|hindi ma-access ang live|hindi pa na-access.*live/i;
+
 export async function hubLoad() {
-  return (await rawLoad()) || (await migrate());
+  const hub = (await rawLoad()) || (await migrate());
+  if (hub.cleaned !== 1) {
+    hub.records = (hub.records || []).filter((r) => !MALING_ARAL.test(r.text || ''));
+    hub.cleaned = 1;
+    await save(hub);
+  }
+  return hub;
 }
 
 function recencyPoints(lastUsed, now) {

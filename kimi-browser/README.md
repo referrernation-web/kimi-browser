@@ -3,6 +3,38 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.25.0 (isang regression ko, at ang aral na natutunan mula sa bug)
+
+> ⚠ **Ang v0.23.0 at v0.24.0 ay may regression na ako ang gumawa.** Ang mga threshold
+> ng compaction ay gumagamit ng `totalChars(messages)`, kasama ang system message. Noong
+> v0.22 ay ~12,000 karakter lang iyon. Sa v0.23 ay ipinasok ko nang buo ang master prompt
+> at ang template — naging **~117,000 karakter**. Ang bunga: lampas na sa hangganan bago
+> pa may sabihin ang user, at dahil hindi mababawasan ang system prompt, **hindi na ito
+> bababa kailanman** — kaya mula sa hakbang 16, isang dagdag na model call sa bawat
+> hakbang, habambuhay, na walang kahit anong nababawas. Naayos na, at may test na ngayon.
+
+- **Ang usapan ang sinusukat, hindi ang system prompt.** Kayang paliitin ng compaction
+  ang usapan lamang; ang isamang isang bagay na hindi mababago sa sukatan ay
+  nangangahulugang pwede kang mag-udyok ng compaction na imposibleng makatulong.
+- **`CTX_DEFAULT = 240000`, hindi 110,000.** Ang qwen3.8-max ay may ~256k na token
+  (~900k karakter). Sa lumang halaga, ang bawat modelong hindi `k3` ay nagko-compact sa
+  ikaapat na bahagi lang ng kaya nito. Sa isang totoong sesyon, dalawang beses itong
+  tumakbo (**−71k** at **−69k** na karakter) sa usapang kasya naman sana nang buo.
+- **NILINIS ANG MALING ARAL.** Ito ang pinakamahalaga. Nang sumuko ang `ensureScope`
+  (naayos sa v0.24), itinala ng agent ang pagpalyang iyon sa knowledge hub **bilang
+  permanenteng katotohanan**: *"Ang live browser ay nangangailangan ng scope group
+  setup"*, *"hamuq.com/sitemap.xml ay hindi ma-access"*. Hindi sapat ang ayusin ang bug —
+  habang nandiyan ang mga talang iyon, ipinapasok sila sa bawat system prompt at
+  sinasabihan siyang huwag nang subukan. **Ang maling aral ay mas mapanganib kaysa sa
+  walang aral: mukha itong karanasan.** Isang beses na paglilinis sa unang load, at ang
+  `remember` ay may bagong tuntunin: huwag na huwag itala ang pagpalya ng sarili mong
+  tool — depekto iyon sa loob mo, hindi katotohanan tungkol sa mundo.
+- **Ang bukas na tab ay hindi ang gawain.** Sa isang sesyon tungkol sa SEO ng Hamuq na
+  puro `search_files` lang sa mga lokal na dokumento, *"natutunan ang daloy sa
+  mail.google.com"* — dahil Gmail ang nakabukas. Hindi na nag-aangkin ng aral para sa
+  isang site kung walang tunay na hakbang na ginawa doon, at ang tseke ay **bago** ang
+  model call, hindi pagkatapos.
+
 ## Anong bago sa v0.24.0 (may hangganan na ang pag-iisip, at limang tunay na bug)
 
 Sinukat ko ang parehong gawain sa qwen3.8-max sa tatlong setting ng pag-iisip:
