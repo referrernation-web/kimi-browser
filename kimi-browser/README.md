@@ -3,6 +3,27 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.14.0 (one-click Gmail at Sheets, tulad ng sa Claude)
+
+Sa **⋯ → 🔌 Connect**, may card na ngayon ang **Gmail + Sheets** na may Connect button.
+Pagkatapos ng isang beses na setup, isang pindot na lang at lalabas ang Google account
+chooser, gaya ng sa Claude. Ang OAuth ay dumadaan sa `chrome.identity` mismo, kaya
+walang server na kailangan at walang third party na humahawak ng token mo.
+
+Limang bagong tool ang nabubuksan nito: `gmail_search`, `gmail_read`, `gmail_send`,
+`sheets_read`, at `sheets_append`. Ang paghahanap ay nagbabalik ng buod lang (mula
+kanino, paksa, petsa, unang bahagi) at hindi ng buong email, kaya hindi lumolobo ang
+konteksto. Ang pagpapadala at pagsulat sa Sheets ay dumadaan sa parehong permission
+gate ng ibang write actions.
+
+**Ang isang beses na setup** (nasa loob ng card mismo ang gabay, hakbang-hakbang):
+gumawa ng project sa Google Cloud, i-enable ang Gmail at Sheets API, gumawa ng OAuth
+client ID na **Web application**, idagdag ang redirect URI na ipinapakita ng card
+(i-click para kopyahin), at i-paste ang Client ID. Kailangan ito dahil nakatali ang
+client ID sa ID ng extension mo — walang maibibigay na pangkalahatang client ID.
+
+> Kailangan ng buong reload (Remove + Load unpacked) — may bagong `identity` permission.
+
 ## Anong bago sa v0.13.2 (alam na niya kung kailan tapos na)
 
 - **⛔ Hadlang sa paikot-ikot** — kapag tinawag niya ang EKSAKTONG parehong hakbang sa

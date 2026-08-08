@@ -1,5 +1,6 @@
 import { repairHistory } from './history.js';
 import { forSpeech } from './speech.js';
+import { googleConnect } from './google.js';
 
 const $ = (id) => document.getElementById(id);
 const log = $('log');
@@ -823,6 +824,116 @@ async function mcpPing(url, token) {
   return (d?.result?.tools || []).length;
 }
 
+// --- GOOGLE CARD: ang one-click Connect, tulad ng nasa Claude ---
+// Ang OAuth ay dumadaan sa Chrome mismo, kaya walang server na kailangan. Ang tanging
+// hinihingi ay isang beses na client ID mula sa Google Cloud ng user — hindi natin
+// pwedeng ipamigay ang sa iba dahil nakatali ito sa ID ng extension mo.
+function googleCard(parent) {
+  const row = document.createElement('div');
+  row.className = 'crow';
+  const icon = document.createElement('b');
+  icon.textContent = '📧';
+  const nm = document.createElement('b');
+  nm.textContent = 'Gmail + Sheets';
+  const st = document.createElement('span');
+  st.className = 'd';
+  const btn = document.createElement('button');
+  row.append(icon, nm, st, btn);
+  parent.append(row);
+
+  const setup = document.createElement('div');
+  setup.className = 'addform';
+  setup.style.display = 'none';
+  parent.append(setup);
+
+  const render = async () => {
+    const { googleClientId, googleEmail, googleOn } = await chrome.storage.local.get([
+      'googleClientId', 'googleEmail', 'googleOn',
+    ]);
+    if (googleEmail) {
+      st.textContent = googleEmail;
+      st.className = 'd';
+      btn.textContent = googleOn === false ? 'I-on' : 'Disconnect';
+      btn.onclick = async () => {
+        if (googleOn === false) {
+          await chrome.storage.local.set({ googleOn: true });
+        } else {
+          await chrome.storage.local.set({ googleEmail: '', googleOn: false });
+        }
+        render();
+      };
+      return;
+    }
+    st.textContent = googleClientId ? 'handa nang i-connect' : 'kailangan ng isang beses na setup';
+    btn.textContent = 'Connect';
+    btn.onclick = async () => {
+      const { googleClientId: cid } = await chrome.storage.local.get('googleClientId');
+      if (!cid) {
+        setup.style.display = setup.style.display === 'none' ? '' : 'none';
+        return;
+      }
+      btn.textContent = '…';
+      try {
+        const email = await googleConnect();
+        await chrome.storage.local.set({ googleEmail: email, googleOn: true });
+        render();
+      } catch (e) {
+        st.textContent = String(e.message).slice(0, 60);
+        btn.textContent = 'Subukan ulit';
+      }
+    };
+  };
+
+  // Ang setup wizard: ipinapakita ang eksaktong redirect URI na kailangan sa Google
+  // Cloud, dahil ito ang madalas na sanhi ng pagkabigo kapag mali ang pagkakakopya.
+  const step = (n, html) => {
+    const d = document.createElement('div');
+    d.className = 'hint';
+    d.innerHTML = `<b style="color:var(--accent)">${n}.</b> ${html}`;
+    return d;
+  };
+  const uri = document.createElement('div');
+  uri.className = 'in';
+  uri.textContent = chrome.identity.getRedirectURL();
+  uri.title = 'I-click para kopyahin';
+  uri.style.cursor = 'pointer';
+  uri.onclick = () => {
+    navigator.clipboard.writeText(chrome.identity.getRedirectURL());
+    uri.textContent = '✓ Nakopya na — i-paste sa Authorized redirect URIs';
+    setTimeout(() => (uri.textContent = chrome.identity.getRedirectURL()), 3000);
+  };
+  const cidIn = document.createElement('input');
+  cidIn.placeholder = 'I-paste ang Client ID (….apps.googleusercontent.com)';
+  const save = document.createElement('button');
+  save.textContent = 'I-save at i-connect';
+  save.onclick = async () => {
+    const v = cidIn.value.trim();
+    if (!v) return;
+    await chrome.storage.local.set({ googleClientId: v });
+    save.textContent = '…';
+    try {
+      const email = await googleConnect();
+      await chrome.storage.local.set({ googleEmail: email, googleOn: true });
+      setup.style.display = 'none';
+      render();
+    } catch (e) {
+      save.textContent = `✗ ${String(e.message).slice(0, 40)}`;
+    }
+  };
+  setup.append(
+    step(1, 'Buksan ang <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Credentials</a> at gumawa ng project.'),
+    step(2, 'Sa <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank">Gmail API</a> at <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank">Sheets API</a>, pindutin ang Enable.'),
+    step(3, 'Create Credentials → OAuth client ID → <b>Web application</b>.'),
+    step(4, 'Sa <b>Authorized redirect URIs</b>, idagdag ito (i-click para kopyahin):'),
+    uri,
+    step(5, 'Kopyahin ang Client ID at i-paste dito:'),
+    cidIn,
+    save
+  );
+
+  render();
+}
+
 $('conn').onclick = async () => {
   $('menu').style.display = 'none';
   const { mcpServers = [] } = await chrome.storage.local.get('mcpServers');
@@ -831,6 +942,7 @@ $('conn').onclick = async () => {
   const head = document.createElement('b');
   head.textContent = '🔌 Connectors';
   box.append(head);
+  googleCard(box);
 
   const saveList = (list) => chrome.storage.local.set({ mcpServers: list });
 
@@ -975,6 +1087,12 @@ const SAYS = {
   _autofix: (a) => `♻ Bumagsak sa ${a.avg}/10 — ipinapasulat muli ang sagot…`,
   _loop: (a) => `⛔ Hinarangan ang paulit-ulit na ${a.tool} (ika-${a.n}) — nagsasayang na ito`,
   _mcp: (a) => `🔌 MCP konektado — ${a.n} connector tools`,
+  _google: () => '📧 Gmail at Sheets konektado',
+  gmail_search: (a) => `Naghahanap sa Gmail: "${String(a.query).slice(0, 40)}"${why(a)}`,
+  gmail_read: () => 'Binabasa ang email',
+  gmail_send: (a) => `✉ Nagpapadala kay ${a.to}: "${String(a.subject).slice(0, 40)}"`,
+  sheets_read: (a) => `Binabasa ang Sheet ${String(a.range || '').slice(0, 20)}`,
+  sheets_append: (a) => `Nagdadagdag ng ${(a.rows || []).length} hilera sa Sheets`,
   _skill: (a) => `📚 Natutunan ang daloy sa ${a.domain} — magagamit muli sa susunod`,
 };
 const why = (a) => (a.why ? ` — ${String(a.why).slice(0, 90)}` : '');

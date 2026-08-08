@@ -1,5 +1,6 @@
 import { needsApproval, schemaFor, runTool, setOverlay, setStatus, setCaption, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL, WRITES } from './tools.js';
 import { promptFor } from './memory.js';
+import { GOOGLE_TOOLS, GOOGLE_TOOL_NAMES, runGoogleTool } from './google.js';
 
 // --- PROVIDERS ---
 // Ang DashScope (Alibaba) ay may OpenAI-compatible endpoint, kaya iisa ang daloy
@@ -999,6 +1000,17 @@ chrome.runtime.onConnect.addListener((port) => {
       for (const t of mcpTools) WRITES.add(t.function.name);
     }
 
+    // GOOGLE: kapag may naka-connect na account, kasama na ang Gmail at Sheets sa
+    // kakayahan ng agent. Ang pagpapadala at pagsulat ay WRITE — may pahintulot.
+    const { googleClientId, googleOn } = await chrome.storage.local.get(['googleClientId', 'googleOn']);
+    let googleTools = [];
+    if (googleClientId && googleOn && mode !== 'plan' && mode !== 'coach') {
+      googleTools = GOOGLE_TOOLS;
+      WRITES.add('gmail_send');
+      WRITES.add('sheets_append');
+      send({ type: 'tool', name: '_google', args: { n: googleTools.length } });
+    }
+
     // AUTO-SKILLS: ang mga napatunayang daloy sa site na ito (mula sa mga dating
     // matagumpay na takbo) ay isinasama sa system prompt — hindi na mag-iisip mula
     // sa wala ang agent sa mga paulit-ulit na gawain.
@@ -1380,7 +1392,7 @@ chrome.runtime.onConnect.addListener((port) => {
           apiKey,
           model: routedModel,
           messages,
-          tools: schemaFor(mode, teach).concat(mcpTools),
+          tools: schemaFor(mode, teach).concat(mcpTools, googleTools),
           signal: abort.signal,
           onDelta: (type, text) => send({ type, text }),
         });
@@ -1577,7 +1589,11 @@ chrome.runtime.onConnect.addListener((port) => {
             if (!hinarangan && !result) {
               markApproved(name); // sa Adaptive: isang pahintulot, tiwala na sa buong gawain
               try {
-                result = name.startsWith('mcp_') ? await mcpCall(name, args) : await runTool(name, args);
+                result = name.startsWith('mcp_')
+                  ? await mcpCall(name, args)
+                  : GOOGLE_TOOL_NAMES.has(name)
+                    ? await runGoogleTool(name, args)
+                    : await runTool(name, args);
                 // Ang mikropono ay nakikinig sa kwarto, hindi sa tab — kaya dito nito
                 // naaabutan ang caption, at dito nagagawang marinig ang voice call.
                 if (name === 'listen') {
