@@ -3,6 +3,36 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.13.2 (alam na niya kung kailan tapos na)
+
+- **⛔ Hadlang sa paikot-ikot** — kapag tinawag niya ang EKSAKTONG parehong hakbang sa
+  ikatlong beses, hindi na ito pinapatakbo. Sa halip, sinasabihan siyang paikot-ikot na
+  siya at kailangan nang magbago ng paraan o huminto. Ito ang tunay na hadlang: hindi
+  na umaasa sa payo lang, hinaharangan na talaga ang pag-aaksaya.
+- **Tuntunin sa pagtatapos** — malinaw nang nakasulat sa system prompt na kapag nasagot
+  na ang hinihingi, tapos na: bawal ang mag-double check ng na-verify na, bawal magbasa
+  ulit ng page na walang nagbago, at bawal maghanap ng dagdag na kumpirmasyon kapag
+  sapat na ang nasa kamay. Kapag may hindi niya kayang tapusin, sasabihin niya at
+  hihinto, hindi na susubukan nang paulit-ulit.
+
+## Anong bago sa v0.13.1 (tunay nang nagtuturo ang 🎓 Teach)
+
+Dati, ang caption sa page ay "Pinipindot ang Edit Snippet" lang — nakikita mo ang
+nangyari pero walang matututunan doon. Ngayon, tatlong bagay ang nasa bawat caption:
+
+- **Ang hakbang** — `[4/9]`, nakatali sa plano, kaya alam mo kung nasaan na siya.
+- **Ang TUNAY na halaga** — hindi na "Isinusulat…" kundi `Isinusulat: "Winter tips to
+  keep your home warm and safe"`. Nakikita mo mismo ang inilagay.
+- **Ang DAHILAN** — pinipilit na ngayon ng schema ang agent na sabihin kung bakit bago
+  siya kumilos, kaya hindi na umaasa sa kung magkataong may paliwanag siya.
+
+Halimbawa ng bagong caption: `[4/9] 🖱 Pinipindot ang "Edit Snippet" — para mabuksan ang
+SEO title at description na kailangang palitan.`
+
+Idinadagdag lang ang dahilan kapag naka-ON ang 🎓, kaya walang dagdag na token kapag
+naka-off. Kasama na rin ito sa talaan sa panel, hindi lang sa lumilipas na caption,
+kaya mababalikan at maie-export ang natutunan.
+
 ## Anong bago sa v0.13.0 (Dianna.ai na ang pangalan)
 
 - **Bagong pangalan: Dianna.ai** — palit na ang extension name, ang logo, ang banner

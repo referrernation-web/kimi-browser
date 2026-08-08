@@ -358,10 +358,10 @@ export function overlay(action, arg) {
       el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText ||
       el.value || el.getAttribute('title') || el.tagName.toLowerCase()
     ).replace(/\s+/g, ' ').trim().slice(0, 40);
-    if (verb) {
-      host.shadowRoot.querySelector('.st').textContent = `· ${verb} ang “${label}”`;
-      addCap(`${verb === 'Pinipindot' ? '🖱' : '⌨'} ${verb} ang “${label}”`);
-    }
+    // Banner lang ang inaayos dito. Ang caption ay galing sa background kasama ang
+    // dahilan at ang hakbang — kung dito rin gagawin, dalawang caption ang lalabas
+    // sa isang aksyon at magiging ingay imbes na aral.
+    if (verb) host.shadowRoot.querySelector('.st').textContent = `· ${verb} ang “${label}”`;
     const r = el.getBoundingClientRect();
     const sh = host.shadowRoot;
     const cur = sh.querySelector('.cur');

@@ -42,6 +42,20 @@ bagong \`done\` para umusad ang check marks. Kapag dalawang beses nabigo ang par
 hakbang, huwag ipagpilitan — i-update ang plano na may bagong ruta bago magpatuloy.
 Sa gawaing isa o dalawang hakbang lang, huwag nang magplano — kumilos agad.
 
+HUMINTO KAPAG TAPOS NA — ito ang pinakamadalas na pinagkakagastusan nang walang saysay.
+Kapag nasagot mo na ang hinihingi ng user, TAPOS KA NA. Sumagot ka at huwag nang tumawag
+ng kahit anong tool. Partikular:
+- HUWAG mag-double check ng bagay na na-verify mo na. Kung sinabi ng resulta ng click
+  na "nagbago: url", tumalab na iyon — hindi mo na kailangang mag-read_page o
+  mag-screenshot para patunayang totoo nga.
+- HUWAG magbasa ulit ng page na binasa mo na kung wala namang nagbago.
+- HUWAG maghanap ng dagdag na kumpirmasyon kapag sapat na ang nasa kamay mo. Ang
+  "siguraduhin lang" na karagdagang hakbang ay bayad na walang binibili.
+- Kapag may natitirang hindi mo kayang tapusin, SABIHIN MO ito sa sagot mo at huminto.
+  Huwag itong subukan nang paulit-ulit sa pag-asang iba ang mangyayari.
+Ang tanda ng magaling na katulong ay hindi ang dami ng hakbang, kundi ang pagkakaalam
+kung kailan tapos na.
+
 TIPID SA KONTEKSTO — mahalaga ito, basahin mong mabuti: ang bawat bagay na pumapasok sa
 usapan ay binabayaran MULI sa bawat kasunod mong hakbang. Kaya ang isang buong page dump
 sa maagang hakbang ay 20 beses na binabayaran sa mahabang gawain. Dahil dito:
@@ -1299,6 +1313,14 @@ chrome.runtime.onConnect.addListener((port) => {
     let autoFixed = false; // isang pagwawasto lang kada gawain
     let lastPlan = null; // ang huling tawag sa `plan` — ginagamit ng recitation
 
+    // HADLANG SA PAIKOT-IKOT: ang prompt ay payo lang, at may mga sandaling naiipit
+    // ang model sa parehong hakbang — paulit-ulit na read_page o pagpindot sa element
+    // na ayaw gumana. Bawat pag-ulit ay bayad, kaya binibilang natin ang EKSAKTONG
+    // parehong tawag. Sa ikatlo, hindi na natin ito pinapatakbo: sinasabi natin sa
+    // kanya na paikot-ikot na siya at kailangan nang magbago o tumigil.
+    const seenCalls = new Map();
+    const LOOP_LIMIT = 3;
+
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
         // CACHE-FRIENDLY COMPACTION: ang pagbabago ng mga LUMANG mensahe ay pumapatay
@@ -1358,7 +1380,7 @@ chrome.runtime.onConnect.addListener((port) => {
           apiKey,
           model: routedModel,
           messages,
-          tools: schemaFor(mode).concat(mcpTools),
+          tools: schemaFor(mode, teach).concat(mcpTools),
           signal: abort.signal,
           onDelta: (type, text) => send({ type, text }),
         });
@@ -1496,10 +1518,63 @@ chrome.runtime.onConnect.addListener((port) => {
                 plan: 'Nagpaplano…',
               })[name] || (name.startsWith('mcp_') ? `Connector: ${name.slice(4)}` : name)
             );
-            if (needsApproval(mode, name)) notify(`Pahintulot: ${name}`, JSON.stringify(args));
-            if (needsApproval(mode, name) && !(await prompt({ type: 'confirm', tool: name, args }))) {
-              result = { error: 'Tinanggihan ng user ang hakbang na ito.' };
-            } else {
+            // ANG ARAL SA PAGE: hindi sapat ang "pinipindot ang X" — ang natututo lang
+            // ang nanonood kapag alam niya ang HAKBANG, ang TUNAY NA HALAGA na inilagay,
+            // at ang DAHILAN. Tatlong ito ang isinasama sa isang caption bago kumilos.
+            if (teach) {
+              const icon =
+                { click: '🖱', type: '⌨', paste_large: '⌨', navigate: '🌐', new_tab: '🌐',
+                  read_page: '👁', extract: '📋', screenshot: '📸', scroll: '↕' }[name] || '⚙';
+              const gawa =
+                { click: 'Pinipindot', type: 'Isinusulat', paste_large: 'Ipinapasok',
+                  navigate: 'Pumupunta sa', new_tab: 'Bagong tab', read_page: 'Binabasa ang page',
+                  extract: 'Kinukuha ang listahan', screenshot: 'Tumitingin sa screen',
+                  scroll: 'Nag-i-scroll' }[name] || name;
+              // Ang aktwal na laman: dito nakikita ng nanonood kung ANO ang isinulat,
+              // hindi lang na may isinulat.
+              const halaga = args.text
+                ? `: “${String(args.text).slice(0, 70)}”`
+                : args.url
+                  ? `: ${String(args.url).slice(0, 60)}`
+                  : args.query
+                    ? `: “${String(args.query).slice(0, 40)}”`
+                    : '';
+              const hakbang = lastPlan?.steps?.length
+                ? `[${Math.min((lastPlan.done || 0) + 1, lastPlan.steps.length)}/${lastPlan.steps.length}] `
+                : '';
+              const bakit = args.why ? ` — ${String(args.why).slice(0, 90)}` : '';
+              setCaption(`${hakbang}${icon} ${gawa}${halaga}${bakit}`);
+            }
+            // Ang bilang ng eksaktong parehong tawag — hindi kasama ang `why`, dahil
+            // maaaring iba ang pananalita pero pareho pa rin ang ginagawa.
+            const { why: _w, ...core } = args;
+            const sig = name + ':' + JSON.stringify(core).slice(0, 300);
+            const ulit = (seenCalls.get(sig) || 0) + 1;
+            seenCalls.set(sig, ulit);
+
+            let hinarangan = false;
+            if (ulit >= LOOP_LIMIT) {
+              hinarangan = true;
+              result = {
+                error:
+                  `PAIKOT-IKOT KA NA: ikatlong beses mo nang tinatawag ang EKSAKTONG hakbang na ito (${name}), ` +
+                  'at hindi ito pinatakbo para hindi na masayang ang gastos. Hindi na ito uubra sa ikaapat. ' +
+                  'Dalawa lang ang pagpipilian mo ngayon: (a) ibang paraan — ibang element, mag-scroll muna, ' +
+                  'o ibang ruta; o (b) huminto at sabihin sa user kung ano ang hindi mo kayang tapusin at bakit.',
+              };
+              send({ type: 'tool', name: '_loop', args: { tool: name, n: ulit } });
+            }
+
+            if (hinarangan) {
+              // wala nang gagawin — nasa `result` na ang paliwanag
+            } else if (needsApproval(mode, name)) {
+              notify(`Pahintulot: ${name}`, JSON.stringify(args));
+              if (!(await prompt({ type: 'confirm', tool: name, args }))) {
+                result = { error: 'Tinanggihan ng user ang hakbang na ito.' };
+              }
+            }
+
+            if (!hinarangan && !result) {
               markApproved(name); // sa Adaptive: isang pahintulot, tiwala na sa buong gawain
               try {
                 result = name.startsWith('mcp_') ? await mcpCall(name, args) : await runTool(name, args);

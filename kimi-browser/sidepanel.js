@@ -950,9 +950,11 @@ const SAYS = {
   generate_image: (a) => `Gumagawa ng larawan: "${String(a.prompt).slice(0, 50)}"`,
   listen: (a) => `Nakikinig (${a.seconds || 8}s)`,
   scroll: (a) => `Nag-scroll ${a.direction === 'up' ? 'pataas' : 'pababa'}`,
-  click: (a) => `Pinipindot ang ${a.ref}`,
-  type: (a) => `Isinusulat: "${String(a.text).slice(0, 40)}"`,
-  navigate: (a) => `Pumupunta sa ${hostOf(a.url)}`,
+  // Ang `why` ay galing sa teach mode — isinasama rin dito, hindi lang sa page, para
+  // may talaang mababalikan at maie-export ang natutunan, hindi lumilipas na caption.
+  click: (a) => `Pinipindot ang ${a.ref}${why(a)}`,
+  type: (a) => `Isinusulat: "${String(a.text).slice(0, 40)}"${why(a)}`,
+  navigate: (a) => `Pumupunta sa ${hostOf(a.url)}${why(a)}`,
   new_tab: (a) => `Bagong tab: ${hostOf(a.url)}`,
   close_tab: () => 'Isinasara ang tab',
   remember: (a) => `Tinatandaan: ${String(a.note).slice(0, 60)}`,
@@ -962,7 +964,7 @@ const SAYS = {
   list_tabs: () => 'Tinitingnan ang mga tab sa group',
   switch_tab: () => 'Lumilipat ng working tab',
   read_console: () => 'Binabasa ang console ng page',
-  extract: (a) => `Kinukuha ang listahan${a.query ? `: "${String(a.query).slice(0, 30)}"` : ''}`,
+  extract: (a) => `Kinukuha ang listahan${a.query ? `: "${String(a.query).slice(0, 30)}"` : ''}${why(a)}`,
   paste_large: (a) => `Nagpa-paste ng ${String(a.text || '').length} karakter`,
   run_shortcut: (a) => `Pinapatakbo ang shortcut na "${a.name}"`,
   schedule_task: () => 'Nag-iiskedyul ng gawain',
@@ -971,9 +973,11 @@ const SAYS = {
   _audit: (a) => `🗳 Sinusuri nina ${a.model} ang sagot…`,
   _midcheck: (a) => `🧐 Second brain: ${a.note}`,
   _autofix: (a) => `♻ Bumagsak sa ${a.avg}/10 — ipinapasulat muli ang sagot…`,
+  _loop: (a) => `⛔ Hinarangan ang paulit-ulit na ${a.tool} (ika-${a.n}) — nagsasayang na ito`,
   _mcp: (a) => `🔌 MCP konektado — ${a.n} connector tools`,
   _skill: (a) => `📚 Natutunan ang daloy sa ${a.domain} — magagamit muli sa susunod`,
 };
+const why = (a) => (a.why ? ` — ${String(a.why).slice(0, 90)}` : '');
 const hostOf = (u) => {
   try {
     return new URL(u).hostname.replace(/^www\./, '');

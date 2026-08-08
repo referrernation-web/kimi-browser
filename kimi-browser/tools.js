@@ -50,8 +50,42 @@ export function needsApproval(mode, name) {
 
 // Sa read-only na mode ay tinatanggal natin ang write tools sa schema mismo, hindi lang
 // hinaharangan: kapag hindi nakikita ng model ang tool, hindi niya ito sinusubukan.
-export function schemaFor(mode) {
-  return READ_ONLY.has(mode) ? SCHEMA.filter((t) => !WRITES.has(t.function.name)) : SCHEMA;
+// Ang mga tool na nakikita ng nanonood habang nangyayari — dito may matututunan siya.
+const TEACHABLE = new Set([
+  'click', 'type', 'paste_large', 'navigate', 'new_tab', 'extract', 'read_page', 'screenshot', 'scroll',
+]);
+
+// TEACH MODE: idinadagdag ang `why` sa mga tool na ito. Hindi umaasa sa kung magkataong
+// may ipaliwanag ang model — PINIPILIT siyang sabihin ang dahilan bago kumilos, at iyon
+// ang lumalabas sa page. Idinadagdag lang kapag naka-ON ang 🎓, kaya walang dagdag na
+// token kapag naka-off.
+const WHY_FIELD = {
+  type: 'string',
+  description:
+    'Sa isang maikling parirala: BAKIT ito ang ginagawa mo ngayon, at ano ang inaasahan mong mangyari. ' +
+    'Ipinapakita ito sa user habang nanonood siya, kaya isulat mo ito para may matutunan siya — ' +
+    'hindi "para makita ang page" kundi "para mabuksan ang SEO title at description".',
+};
+
+function withWhy(t) {
+  if (!TEACHABLE.has(t.function.name)) return t;
+  const p = t.function.parameters || { type: 'object', properties: {}, required: [] };
+  return {
+    ...t,
+    function: {
+      ...t.function,
+      parameters: {
+        ...p,
+        properties: { ...(p.properties || {}), why: WHY_FIELD },
+        required: [...(p.required || []), 'why'],
+      },
+    },
+  };
+}
+
+export function schemaFor(mode, teach) {
+  const base = READ_ONLY.has(mode) ? SCHEMA.filter((t) => !WRITES.has(t.function.name)) : SCHEMA;
+  return teach ? base.map(withWhy) : base;
 }
 
 // --- SCOPE: ang tanging tab group na kontrolado ng agent ---
