@@ -225,7 +225,18 @@ border-radius:13px, ang iyo ay .hq-goldframe na may border-radius:13px — hindi
 magmukhang iisa; ang isang naiibang artikulo ay sira, hindi bagong disenyo.
 
 Kapag WALANG 🎨 template, markdown lang — at sabihin mo sa user na walang disenyong
-masusunod. Huwag mag-imbento ng palette o klase at ipakita iyon na parang sa kliyente.`;
+masusunod. Huwag mag-imbento ng palette o klase at ipakita iyon na parang sa kliyente.
+
+ANG HULING TAWAG MO SA write_document AY ANG SCHEMA. Sinukat ko ang isang buong takbo:
+tama ang disenyo, tama ang istruktura, 2,925 salita — at ZERO ang JSON-LD. Walang Article,
+walang FAQPage, walang LocalBusiness. Hindi ito nakikita sa mata, kaya hindi napapansin
+hangga't hindi nawawala ang rich result. Kaya huwag itong iiwan sa dulo ng listahan mo:
+gawin itong sarili nitong tawag, at huwag kang magsasabing tapos ka hangga't hindi ito
+naisusulat. Isang <script type="application/ld+json"> na may @graph: Article (may
+datePublished, dateModified, author, reviewedBy, publisher, image), FAQPage na
+salita-por-salitang tugma sa nakikitang FAQ, Product na may offers at positiveNotes at
+negativeNotes, LocalBusiness na ang areaServed ay ARRAY ng probinsya hindi "Canada",
+Organization, at BreadcrumbList.`;
 
 const PLAN_NOTE = `
 
