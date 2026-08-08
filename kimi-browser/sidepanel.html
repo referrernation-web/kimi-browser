@@ -243,6 +243,20 @@
       }
       .doccard > b { font-size: 13px; }
       .doccard .docoutline { color: var(--dim); font-size: 11px; line-height: 1.5; }
+      /* Mga file card — parang sa Claude: mukhang file, hindi hilera ng button. */
+      .doccard .docfiles { display: grid; gap: 6px; }
+      .doccard .filecard {
+        display: flex; align-items: center; gap: 9px;
+        border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: var(--bg);
+      }
+      .doccard .filecard .fi { font-size: 17px; flex: none; }
+      .doccard .filecard .finfo { flex: 1; min-width: 0; }
+      .doccard .filecard .fname {
+        font-size: 12.5px; font-weight: 600;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .doccard .filecard .ftype { color: var(--dim); font-size: 10.5px; }
+      .doccard .filecard button { flex: none; font-size: 11.5px; padding: 5px 12px; }
       .doccard details summary { cursor: pointer; color: var(--accent); font-size: 11.5px; user-select: none; }
       .doccard .docbody {
         max-height: 300px; overflow-y: auto; margin-top: 7px; padding: 9px;

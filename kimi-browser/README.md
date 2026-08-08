@@ -3,6 +3,14 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.17.1 (mga file card, tulad ng sa Claude)
+
+Ang export ay hilera dati ng button (`⤓ .docx`, `⤓ .pdf`…). Ngayon, **file card na** —
+bawat format ay may icon, pangalan ng file, uri, at **Download** button, gaya ng sa
+Claude. May **⤓ Download all** din para makuha lahat sa isang pindot.
+
+Ang laman ay isang beses lang binubuo para sa lahat ng format, hindi kada pindot.
+
 ## Anong bago sa v0.17.0 (📝 Write mode — inayos ang article generation)
 
 **Ang sira na inayos:** dalawampu't apat na tool ang meron ang agent, at sobra-sobra

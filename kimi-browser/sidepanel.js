@@ -1314,55 +1314,90 @@ function renderDocCard(sess, m) {
   };
   box.append(det);
 
+  // --- MGA FILE CARD, hindi hilera ng button ---
+  // Parang sa Claude: bawat format ay isang file na may pangalan, uri, at Download.
+  // Mas malinaw kaysa "⤓ .docx" dahil MUKHA itong file na maibibigay sa kliyente.
+  const safeName = (t) =>
+    String(t || 'dokumento').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50) ||
+    'dokumento';
+
+  const FORMATS = [
+    { ext: 'docx', label: 'Word', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      make: (doc, blocks) => makeDocx(doc.title, blocks) },
+    { ext: 'pdf', label: 'PDF', mime: 'application/pdf', make: (doc, blocks) => makePdf(doc.title, blocks) },
+    { ext: 'pptx', label: 'Slides', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      make: (doc, blocks) => makePptx(doc.title, blocks) },
+    { ext: 'md', label: 'Markdown', mime: 'text/markdown', make: (doc) => doc.md },
+    { ext: 'html', label: 'HTML', mime: 'text/html',
+      make: (doc) => `<!doctype html><meta charset="utf-8"><title>${doc.title}</title>` + doc.html },
+  ];
+
+  // Isang beses lang binubuo ang laman para sa lahat ng format — hindi kada pindot.
+  const build = async () => {
+    const doc = await docGet(sid);
+    doc.md = await docAsMarkdown(sid);
+    doc.html = await docAsHtml(sid);
+    return { doc, blocks: parseMarkdown(doc.sections.map((s) => s.md).join('\n\n')) };
+  };
+
+  const files = document.createElement('div');
+  files.className = 'docfiles';
+  for (const f of FORMATS) {
+    const card = document.createElement('div');
+    card.className = 'filecard';
+    const ic = document.createElement('span');
+    ic.className = 'fi';
+    ic.textContent = f.ext === 'pptx' ? '📊' : f.ext === 'pdf' ? '📕' : '📄';
+    const info = document.createElement('div');
+    info.className = 'finfo';
+    const nm = document.createElement('div');
+    nm.className = 'fname';
+    nm.textContent = `${safeName(m.title)}.${f.ext}`;
+    const ty = document.createElement('div');
+    ty.className = 'ftype';
+    ty.textContent = `Dokumento · ${f.label}`;
+    info.append(nm, ty);
+    const dl = document.createElement('button');
+    dl.textContent = 'Download';
+    dl.onclick = async () => {
+      dl.textContent = '…';
+      try {
+        const { doc, blocks } = await build();
+        await saveBlob(await f.make(doc, blocks), `${safeName(doc.title)}.${f.ext}`, f.mime);
+        dl.textContent = '✓';
+      } catch {
+        dl.textContent = '✗';
+      }
+      setTimeout(() => (dl.textContent = 'Download'), 2500);
+    };
+    card.append(ic, info, dl);
+    files.append(card);
+  }
+  box.append(files);
+
   const row = document.createElement('div');
   row.className = 'opts';
-  const mkBtn = (label, fn) => {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.onclick = async () => {
-      const old = b.textContent;
-      b.textContent = '…';
+  const all = document.createElement('button');
+  all.textContent = '⤓ Download all';
+  all.onclick = async () => {
+    all.textContent = '…';
+    const { doc, blocks } = await build();
+    for (const f of FORMATS) {
       try {
-        await fn();
-        b.textContent = '✓';
-      } catch (e) {
-        b.textContent = '✗';
-      }
-      setTimeout(() => (b.textContent = old), 2500);
-    };
-    return b;
+        await saveBlob(await f.make(doc, blocks), `${safeName(doc.title)}.${f.ext}`, f.mime);
+      } catch {}
+    }
+    all.textContent = '✓ Nasa Downloads mo';
+    setTimeout(() => (all.textContent = '⤓ Download all'), 3000);
   };
-  const safeName = (t) => (String(t || 'dokumento').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50) || 'dokumento');
-
-  row.append(
-    mkBtn('⤓ .docx', async () => {
-      const doc = await docGet(sid);
-      const blocks = parseMarkdown(doc.sections.map((s) => s.md).join('\n\n'));
-      await saveBlob(makeDocx(doc.title, blocks), safeName(doc.title) + '.docx',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    }),
-    mkBtn('⤓ .pdf', async () => {
-      const doc = await docGet(sid);
-      const blocks = parseMarkdown(doc.sections.map((s) => s.md).join('\n\n'));
-      await saveBlob(makePdf(doc.title, blocks), safeName(doc.title) + '.pdf', 'application/pdf');
-    }),
-    mkBtn('⤓ .pptx', async () => {
-      const doc = await docGet(sid);
-      const blocks = parseMarkdown(doc.sections.map((s) => s.md).join('\n\n'));
-      await saveBlob(makePptx(doc.title, blocks), safeName(doc.title) + '.pptx',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation');
-    }),
-    mkBtn('⤓ .md', async () => {
-      const doc = await docGet(sid);
-      await saveBlob(await docAsMarkdown(sid), safeName(doc.title) + '.md', 'text/markdown');
-    }),
-    mkBtn('⤓ .html', async () => {
-      const doc = await docGet(sid);
-      await saveBlob(`<!doctype html><meta charset="utf-8"><title>${doc.title}</title>` + (await docAsHtml(sid)),
-        safeName(doc.title) + '.html', 'text/html');
-    }),
-    mkBtn('📋 Kopyahin', async () => navigator.clipboard.writeText(await docAsMarkdown(sid)))
-  );
+  const copy = document.createElement('button');
+  copy.textContent = '📋 Kopyahin';
+  copy.onclick = async () => {
+    await navigator.clipboard.writeText(await docAsMarkdown(sid));
+    copy.textContent = '✓ Nakopya';
+    setTimeout(() => (copy.textContent = '📋 Kopyahin'), 2500);
+  };
+  row.append(all, copy);
   box.append(row);
   log.scrollTop = log.scrollHeight;
 }
