@@ -4,6 +4,7 @@ import { googleConnect } from './google.js';
 import { parseMarkdown, blocksToHtml, makeDocx, makePptx } from './docx.js';
 import { makePdf } from './pdf.js';
 import { docGet, docAsMarkdown, docAsHtml } from './docs.js';
+import { chatModels } from './models.js';
 
 const $ = (id) => document.getElementById(id);
 const log = $('log');
@@ -623,7 +624,9 @@ async function refreshModels(p) {
   try {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
     if (!res.ok) return null; // hindi lahat ng provider ay may /models — hayaan ang fallback
-    const ids = (((await res.json()).data) || []).map((m) => m.id).filter(Boolean).sort();
+    // Sinasala ang image, TTS, at embedding models — hindi sila makakasagot ng chat,
+    // at tahimik na babagsak ang gawain kapag napili sila bilang worker o auditor.
+    const ids = chatModels((((await res.json()).data) || []).map((m) => m.id));
     if (!ids.length) return null;
     (PROVIDERS[p] ||= { keyHint: 'API key', models: [] }).models = ids;
     if (p === curProvider) fillModels(true);
@@ -1028,198 +1031,6 @@ $('cartesiakey').onchange = () => {
   loadCartesiaVoices();
 };
 $('cartesiavoice').onchange = () => chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
-// --- 🔌 CONNECTORS: parang kay Claude — gallery, Connect, status ---
-// Bawat connector ay isang MCP server URL. Ang mga aggregator (Zapier, Composio) ay
-// naglalantad ng libu-libong app sa likod ng iisang URL na may kasamang auth nila.
-const CONNECTOR_GALLERY = [
-  { name: 'Zapier', desc: 'Gmail, Sheets, Slack + libu-libong app — iisang URL', get: 'https://zapier.com/mcp', hint: 'https://mcp.zapier.com/api/mcp/s/…' },
-  { name: 'Composio', desc: 'Daan-daang app connectors, sila ang bahala sa auth', get: 'https://mcp.composio.dev', hint: 'https://mcp.composio.dev/…' },
-  { name: 'Notion', desc: 'Basahin at sulatan ang Notion workspace mo', get: 'https://developers.notion.com/docs/mcp', hint: 'https://mcp.notion.com/mcp' },
-  { name: 'GitHub', desc: 'Repos, issues, pull requests', get: 'https://github.com/github/github-mcp-server', hint: 'https://api.githubcopilot.com/mcp/' },
-  { name: 'Custom', desc: 'Kahit anong MCP server (Streamable HTTP)', get: '', hint: 'https://…' },
-];
-
-// Maliit na MCP handshake para sa "I-test" — initialize → initialized → tools/list.
-async function mcpPing(url, token) {
-  const hdr = (sid) => ({
-    'Content-Type': 'application/json',
-    Accept: 'application/json, text/event-stream',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(sid ? { 'Mcp-Session-Id': sid } : {}),
-  });
-  const parse = async (res) => {
-    const ct = res.headers.get('content-type') || '';
-    if (!ct.includes('event-stream')) return res.json().catch(() => null);
-    let d = null;
-    for (const l of (await res.text()).split('\n')) {
-      if (!l.startsWith('data:')) continue;
-      try {
-        const j = JSON.parse(l.slice(5));
-        if (j.result !== undefined || j.error !== undefined) d = j;
-      } catch {}
-    }
-    return d;
-  };
-  let res = await fetch(url, {
-    method: 'POST', headers: hdr(),
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'kimi-browser', version: '0.11.0' } } }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const sid = res.headers.get('mcp-session-id');
-  await parse(res);
-  await fetch(url, { method: 'POST', headers: hdr(sid), body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) });
-  res = await fetch(url, { method: 'POST', headers: hdr(sid), body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
-  const d = await parse(res);
-  if (d?.error) throw new Error(d.error.message || 'MCP error');
-  return (d?.result?.tools || []).length;
-}
-
-// --- 📁 PROJECTS: ang kaalamang IKAW ang nagbibigay ---
-// Isang project kada kliyente o uri ng trabaho: may sariling tagubilin at mga
-// dokumento. Naka-attach ito sa usapan, at ang laman ay hinahanap ng search_files —
-// hindi ibinubuhos sa konteksto.
-$('proj').onclick = async () => {
-  $('menu').style.display = 'none';
-  const F = await import('./files.js');
-
-  const box = document.createElement('div');
-  box.className = 'projbox';
-  const head = document.createElement('b');
-  const body = document.createElement('div');
-  box.append(head, body);
-
-  const sess = active();
-  let openId = null; // aling project ang nakabukas ang detalye
-
-  async function paint() {
-    const ps = await F.listProjects();
-    const attached = sess ? (await F.projectForSession(sess.id))?.id : null;
-    const ids = Object.keys(ps);
-    head.textContent = `📁 Projects (${ids.length})`;
-    body.replaceChildren();
-
-    for (const id of ids) {
-      const p = ps[id];
-      const row = document.createElement('div');
-      row.className = 'projrow' + (attached === id ? ' active' : '');
-      const nm = document.createElement('b');
-      nm.textContent = p.name;
-      const n = document.createElement('span');
-      n.className = 'n';
-      n.textContent = `${p.files.length} dokumento${p.instructions ? ' · may tagubilin' : ''}`;
-
-      const use = document.createElement('button');
-      use.textContent = attached === id ? '✓ Gamit' : 'Gamitin';
-      use.title = 'I-attach sa usapang ito';
-      use.onclick = async () => {
-        await F.attachSession(sess.id, attached === id ? null : id);
-        paint();
-      };
-      const open = document.createElement('button');
-      open.textContent = openId === id ? '▾' : '▸';
-      open.onclick = () => { openId = openId === id ? null : id; paint(); };
-      const del = document.createElement('button');
-      del.textContent = '×';
-      del.title = 'Burahin ang project';
-      del.onclick = async () => { await F.deleteProject(id); paint(); };
-
-      row.append(nm, n, use, open, del);
-      body.append(row);
-      if (openId === id) body.append(detailPanel(p, F, paint));
-    }
-
-    const add = document.createElement('button');
-    add.textContent = '＋ Bagong project';
-    add.onclick = async () => {
-      const name = window.prompt('Pangalan ng project (hal. "Aire One Peel" o "Hamuq articles"):');
-      if (!name) return;
-      const p = await F.createProject(name);
-      openId = p.id;
-      if (sess) await F.attachSession(sess.id, p.id);
-      paint();
-    };
-    body.append(add);
-
-    if (!ids.length) {
-      const hint = document.createElement('div');
-      hint.className = 'dim';
-      hint.textContent = 'Isang project kada kliyente o uri ng trabaho. Ilagay dito ang SOP, brand guidelines, o mga na-verify na facts — hahanapin niya ito imbes na manghula.';
-      body.append(hint);
-    }
-  }
-
-  function detailPanel(p, F, repaint) {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'padding:4px 0 8px 10px;display:grid;gap:7px';
-
-    const ta = document.createElement('textarea');
-    ta.placeholder = 'Tagubilin ng project — sundin niya ito sa buong gawain (hal. tono ng pagsulat, mga bawal, format ng output).';
-    ta.value = p.instructions || '';
-    ta.onchange = () => F.setInstructions(p.id, ta.value);
-    wrap.append(ta);
-
-    for (const f of p.files) {
-      const fr = document.createElement('div');
-      fr.className = 'filerow';
-      const fn = document.createElement('span');
-      fn.className = 'fn';
-      fn.textContent = '📄 ' + f.name;
-      const fm = document.createElement('span');
-      fm.className = 'fm';
-      fm.textContent = `${Math.round(f.size / 1024)}KB · ${f.chunks} bahagi`;
-      const x = document.createElement('button');
-      x.textContent = '×';
-      x.onclick = async () => { await F.deleteFile(p.id, f.id); repaint(); };
-      fr.append(fn, fm, x);
-      wrap.append(fr);
-    }
-
-    // Upload: pindutin o i-drag. Ang pagbabasa ay nangyayari DITO sa panel; ang
-    // teksto lang ang napupunta sa storage, hindi ang binary.
-    const zone = document.createElement('div');
-    zone.className = 'dropzone';
-    zone.textContent = 'Mag-click o mag-drag ng file dito (.txt .md .csv .docx .pptx .json .html)';
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.style.display = 'none';
-    input.accept = '.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.log,.docx,.pptx';
-
-    const take = async (fileList) => {
-      for (const file of fileList) {
-        zone.textContent = `Binabasa ang ${file.name}…`;
-        try {
-          const buf = new Uint8Array(await file.arrayBuffer());
-          const text = await F.extractText(file.name, buf);
-          const r = await F.addFile(p.id, file.name, text);
-          zone.textContent = r.error ? `✗ ${file.name}: ${r.error}` : `✓ ${file.name} — ${r.mga_tipak} bahagi`;
-        } catch (e) {
-          zone.textContent = `✗ ${file.name}: ${e.message}`;
-        }
-      }
-      setTimeout(repaint, 1200);
-    };
-    zone.onclick = () => input.click();
-    input.onchange = () => take([...input.files]);
-    zone.ondragover = (e) => { e.preventDefault(); zone.classList.add('over'); };
-    zone.ondragleave = () => zone.classList.remove('over');
-    zone.ondrop = (e) => {
-      e.preventDefault();
-      zone.classList.remove('over');
-      take([...e.dataTransfer.files]);
-    };
-    wrap.append(zone, input);
-    return wrap;
-  }
-
-  await paint();
-  log.append(box);
-  log.scrollTop = log.scrollHeight;
-};
-
-// --- GOOGLE CARD: ang one-click Connect, tulad ng nasa Claude ---
-// Ang OAuth ay dumadaan sa Chrome mismo, kaya walang server na kailangan. Ang tanging
-// hinihingi ay isang beses na client ID mula sa Google Cloud ng user — hindi natin
 // pwedeng ipamigay ang sa iba dahil nakatali ito sa ID ng extension mo.
 // --- 🔌 CONNECTORS ---
 // Isang malinis na grid ng card, tulad ng sa Claude. Ang mahabang setup ay NAKATAGO

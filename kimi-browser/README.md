@@ -3,6 +3,30 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.20.1 (INAYOS: blangkong panel)
+
+> ⚠️ **Kung blangko ang panel mo, ito ang ayos.** Ang v0.18.0 hanggang v0.20.0 ay SIRA.
+
+**Ang sira:** nang isulat kong muli ang Connectors sa v0.18.0, naiwan ang lumang bloke,
+kaya naging DOBLE ang `mcpPing`. Sa ES module, ang doblehing deklarasyon ay SyntaxError —
+hindi tumatakbo ang BUONG `sidepanel.js`, kaya blangkong panel na walang tab at walang
+settings.
+
+**Bakit hindi nahuli sa tatlong bersyon:** ginagamit ko ang `node --check sidepanel.js`,
+at sinusuri niyan ang file bilang **CommonJS** — doon, LEGAL ang doblehing function.
+Ang extension ay **ES module**, kung saan iyon ay error. Maling mode ang sinusuri ko.
+
+**Ang bantay ngayon:** bagong `test-modules.mjs` na sumusuri sa LAHAT ng 15 module sa
+TAMANG mode (kinokopya bilang `.mjs` para pilitin ang module semantics), at may dagdag
+na tseke para sa doblehing top-level na pangalan. Pinatunayan kong nahuhuli nito ang
+mismong sirang bersyon bago ko ito ipinadala.
+
+**Dagdag na ayos:** ang dropdown ng model ay sinasala na — hindi na lalabas ang
+`wan2.7-image`, `qwen-audio-3.0-tts-plus`, at iba pang image, TTS, o embedding na model
+na hindi naman makakasagot ng chat, dahil tahimik na bumabagsak ang gawain kapag napili
+sila. Nananatili ang vision-language (`qwen-vl-max`) dahil sila ang nakakabasa ng
+screenshot. May `test-models.mjs` para dito.
+
 ## Anong bago sa v0.20.0 (article wizard — hindi na malilito ang VA)
 
 Dati, kailangang alam ng VA ang apat na bagay bago makasulat: aling mode, aling project,
