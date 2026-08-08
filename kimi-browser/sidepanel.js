@@ -986,217 +986,263 @@ $('proj').onclick = async () => {
 // Ang OAuth ay dumadaan sa Chrome mismo, kaya walang server na kailangan. Ang tanging
 // hinihingi ay isang beses na client ID mula sa Google Cloud ng user — hindi natin
 // pwedeng ipamigay ang sa iba dahil nakatali ito sa ID ng extension mo.
-function googleCard(parent) {
-  const row = document.createElement('div');
-  row.className = 'crow';
-  const icon = document.createElement('b');
-  icon.textContent = '📧';
-  const nm = document.createElement('b');
-  nm.textContent = 'Gmail + Sheets';
-  const st = document.createElement('span');
-  st.className = 'd';
-  const btn = document.createElement('button');
-  row.append(icon, nm, st, btn);
-  parent.append(row);
+// --- 🔌 CONNECTORS ---
+// Isang malinis na grid ng card, tulad ng sa Claude. Ang mahabang setup ay NAKATAGO
+// hanggang pindutin ang Connect — hindi ka binabaha ng Google Cloud steps pagbukas.
+//
+// Dalawang uri ang connector: ang Google (Gmail, Sheets, Calendar, Drive) na dumaraan
+// sa chrome.identity, at ang MCP (Zapier, Notion, atbp.) na isang URL lang. Pareho
+// silang mukhang card — hindi na kailangang alam ng user ang pagkakaiba.
+const CONNECTORS = [
+  { id: 'gmail', icon: '✉️', name: 'Gmail', desc: 'Basahin at magpadala ng email', kind: 'google' },
+  { id: 'sheets', icon: '📊', name: 'Google Sheets', desc: 'Basahin at dagdagan ang mga hilera', kind: 'google' },
+  { id: 'calendar', icon: '📅', name: 'Google Calendar', desc: 'Tingnan at maglagay ng event', kind: 'google' },
+  { id: 'drive', icon: '📁', name: 'Google Drive', desc: 'Hanapin ang mga file mo', kind: 'google' },
+  { id: 'zapier', icon: '⚡', name: 'Zapier', desc: 'Libu-libong app sa iisang URL', kind: 'mcp',
+    get: 'https://zapier.com/mcp', hint: 'https://mcp.zapier.com/api/mcp/s/…' },
+  { id: 'notion', icon: '📓', name: 'Notion', desc: 'Basahin at sulatan ang workspace', kind: 'mcp',
+    get: 'https://developers.notion.com/docs/mcp', hint: 'https://mcp.notion.com/mcp' },
+  { id: 'composio', icon: '🧩', name: 'Composio', desc: 'Daan-daang app, sila ang bahala sa auth', kind: 'mcp',
+    get: 'https://mcp.composio.dev', hint: 'https://mcp.composio.dev/…' },
+  { id: 'github', icon: '🐙', name: 'GitHub', desc: 'Repos, issues, pull requests', kind: 'mcp',
+    get: 'https://github.com/github/github-mcp-server', hint: 'https://api.githubcopilot.com/mcp/' },
+  { id: 'custom', icon: '🔗', name: 'Custom', desc: 'Kahit anong MCP server', kind: 'mcp', hint: 'https://…' },
+];
 
-  const setup = document.createElement('div');
-  setup.className = 'addform';
-  setup.style.display = 'none';
-  parent.append(setup);
-
-  const render = async () => {
-    const { googleClientId, googleEmail, googleOn } = await chrome.storage.local.get([
-      'googleClientId', 'googleEmail', 'googleOn',
-    ]);
-    if (googleEmail) {
-      st.textContent = googleEmail;
-      st.className = 'd';
-      btn.textContent = googleOn === false ? 'I-on' : 'Disconnect';
-      btn.onclick = async () => {
-        if (googleOn === false) {
-          await chrome.storage.local.set({ googleOn: true });
-        } else {
-          await chrome.storage.local.set({ googleEmail: '', googleOn: false });
-        }
-        render();
-      };
-      return;
-    }
-    st.textContent = googleClientId ? 'handa nang i-connect' : 'kailangan ng isang beses na setup';
-    btn.textContent = 'Connect';
-    btn.onclick = async () => {
-      const { googleClientId: cid } = await chrome.storage.local.get('googleClientId');
-      if (!cid) {
-        setup.style.display = setup.style.display === 'none' ? '' : 'none';
-        return;
-      }
-      btn.textContent = '…';
+// Maliit na MCP handshake para sa "I-test" — initialize → initialized → tools/list.
+async function mcpPing(url, token) {
+  const hdr = (sid) => ({
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(sid ? { 'Mcp-Session-Id': sid } : {}),
+  });
+  const parse = async (res) => {
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('event-stream')) return res.json().catch(() => null);
+    let d = null;
+    for (const l of (await res.text()).split('\n')) {
+      if (!l.startsWith('data:')) continue;
       try {
-        const email = await googleConnect();
-        await chrome.storage.local.set({ googleEmail: email, googleOn: true });
-        render();
-      } catch (e) {
-        st.textContent = String(e.message).slice(0, 60);
-        btn.textContent = 'Subukan ulit';
-      }
-    };
-  };
-
-  // Ang setup wizard: ipinapakita ang eksaktong redirect URI na kailangan sa Google
-  // Cloud, dahil ito ang madalas na sanhi ng pagkabigo kapag mali ang pagkakakopya.
-  const step = (n, html) => {
-    const d = document.createElement('div');
-    d.className = 'hint';
-    d.innerHTML = `<b style="color:var(--accent)">${n}.</b> ${html}`;
+        const j = JSON.parse(l.slice(5));
+        if (j.result !== undefined || j.error !== undefined) d = j;
+      } catch {}
+    }
     return d;
   };
-  const uri = document.createElement('div');
-  uri.className = 'in';
-  uri.textContent = chrome.identity.getRedirectURL();
-  uri.title = 'I-click para kopyahin';
-  uri.style.cursor = 'pointer';
-  uri.onclick = () => {
-    navigator.clipboard.writeText(chrome.identity.getRedirectURL());
-    uri.textContent = '✓ Nakopya na — i-paste sa Authorized redirect URIs';
-    setTimeout(() => (uri.textContent = chrome.identity.getRedirectURL()), 3000);
-  };
-  const cidIn = document.createElement('input');
-  cidIn.placeholder = 'I-paste ang Client ID (….apps.googleusercontent.com)';
-  const save = document.createElement('button');
-  save.textContent = 'I-save at i-connect';
-  save.onclick = async () => {
-    const v = cidIn.value.trim();
-    if (!v) return;
-    await chrome.storage.local.set({ googleClientId: v });
-    save.textContent = '…';
-    try {
-      const email = await googleConnect();
-      await chrome.storage.local.set({ googleEmail: email, googleOn: true });
-      setup.style.display = 'none';
-      render();
-    } catch (e) {
-      save.textContent = `✗ ${String(e.message).slice(0, 40)}`;
-    }
-  };
-  setup.append(
-    step(1, 'Buksan ang <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Credentials</a> at gumawa ng project.'),
-    step(2, 'Sa <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank">Gmail API</a> at <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank">Sheets API</a>, pindutin ang Enable.'),
-    step(3, 'Create Credentials → OAuth client ID → <b>Web application</b>.'),
-    step(4, 'Sa <b>Authorized redirect URIs</b>, idagdag ito (i-click para kopyahin):'),
-    uri,
-    step(5, 'Kopyahin ang Client ID at i-paste dito:'),
-    cidIn,
-    save
-  );
-
-  render();
+  let res = await fetch(url, {
+    method: 'POST', headers: hdr(),
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'dianna', version: '0.18.0' } } }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const sid = res.headers.get('mcp-session-id');
+  await parse(res);
+  await fetch(url, { method: 'POST', headers: hdr(sid), body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) });
+  res = await fetch(url, { method: 'POST', headers: hdr(sid), body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
+  const d = await parse(res);
+  if (d?.error) throw new Error(d.error.message || 'MCP error');
+  return (d?.result?.tools || []).length;
 }
 
 $('conn').onclick = async () => {
   $('menu').style.display = 'none';
-  const { mcpServers = [] } = await chrome.storage.local.get('mcpServers');
   const box = document.createElement('div');
   box.className = 'connbox';
-  const head = document.createElement('b');
-  head.textContent = '🔌 Connectors';
-  box.append(head);
-  googleCard(box);
-
-  const saveList = (list) => chrome.storage.local.set({ mcpServers: list });
-
-  // Mga naka-connect na
-  if (!mcpServers.length) {
-    const d = document.createElement('div');
-    d.className = 'dim';
-    d.textContent = 'Wala pang naka-connect. Pumili sa ibaba — isang URL lang ang kailangan.';
-    box.append(d);
-  }
-  for (const s of mcpServers) {
-    const row = document.createElement('div');
-    row.className = 'crow';
-    const onBtn = document.createElement('button');
-    onBtn.textContent = s.on === false ? '○' : '●';
-    onBtn.title = s.on === false ? 'Naka-off — i-click para i-on' : 'Naka-on — i-click para i-off';
-    onBtn.onclick = async () => {
-      s.on = s.on === false;
-      onBtn.textContent = s.on === false ? '○' : '●';
-      await saveList(mcpServers);
-    };
-    const nm = document.createElement('b');
-    nm.textContent = s.name || 'MCP';
-    const ds = document.createElement('span');
-    ds.className = 'd';
-    ds.textContent = s.url;
-    const st = document.createElement('span');
-    st.className = 'st-ok';
-    st.textContent = '…';
-    const del = document.createElement('button');
-    del.textContent = '✕';
-    del.title = 'Alisin';
-    del.onclick = async () => {
-      await saveList(mcpServers.filter((x) => x !== s));
-      row.remove();
-    };
-    row.append(onBtn, nm, ds, st, del);
-    box.append(row);
-    // Awtomatikong i-ping para makita agad kung buhay — parang status ni Claude.
-    mcpPing(s.url, s.token).then(
-      (n) => (st.textContent = `✓ ${n} tools`),
-      (e) => { st.className = 'st-err'; st.textContent = '✗ ' + String(e.message).slice(0, 30); }
-    );
-  }
-
-  // Gallery ng mapagpipilian
-  const gal = document.createElement('div');
-  gal.className = 'gal';
-  const form = document.createElement('div');
-  form.className = 'addform';
-  form.style.display = 'none';
-  for (const g of CONNECTOR_GALLERY) {
-    const b = document.createElement('button');
-    b.textContent = g.name;
-    b.title = g.desc;
-    b.onclick = () => {
-      form.style.display = '';
-      form.replaceChildren();
-      const hint = document.createElement('div');
-      hint.className = 'hint';
-      hint.append(`${g.desc}. `);
-      if (g.get) {
-        const a = document.createElement('a');
-        a.href = g.get;
-        a.target = '_blank';
-        a.textContent = 'Kunin ang URL mo dito →';
-        hint.append(a);
-      }
-      const urlIn = document.createElement('input');
-      urlIn.placeholder = g.hint;
-      const tokIn = document.createElement('input');
-      tokIn.type = 'password';
-      tokIn.placeholder = 'Bearer token (kung kailangan — karamihan sa Zapier/Composio URL ay may kasama na)';
-      const save = document.createElement('button');
-      save.textContent = 'I-test at i-connect';
-      save.onclick = async () => {
-        const url = urlIn.value.trim();
-        if (!url) return;
-        save.textContent = 'Sinusubukan…';
-        try {
-          const n = await mcpPing(url, tokIn.value.trim());
-          const { mcpServers: cur = [] } = await chrome.storage.local.get('mcpServers');
-          cur.push({ name: g.name === 'Custom' ? new URL(url).hostname : g.name, url, token: tokIn.value.trim(), on: true });
-          await saveList(cur);
-          save.textContent = `✓ Konektado — ${n} tools! Buksan muli ang 🔌 para makita.`;
-        } catch (e) {
-          save.textContent = `✗ ${String(e.message).slice(0, 40)} — subukan ulit`;
-        }
-      };
-      form.append(hint, urlIn, tokIn, save);
-    };
-    gal.append(b);
-  }
-  box.append(gal, form);
   log.append(box);
   log.scrollTop = log.scrollHeight;
+
+  const paint = async () => {
+    const { mcpServers = [], googleEmail, googleOn, googleClientId } =
+      await chrome.storage.local.get(['mcpServers', 'googleEmail', 'googleOn', 'googleClientId']);
+    box.replaceChildren();
+
+    const head = document.createElement('b');
+    head.textContent = '🔌 Connectors';
+    box.append(head);
+
+    const googleLive = !!googleEmail && googleOn !== false;
+    const mcpFor = (id) => mcpServers.find((s) => (s.name || '').toLowerCase() === id);
+
+    // --- Ang grid: bawat connector ay isang card na may Connect o ✓ ---
+    const grid = document.createElement('div');
+    grid.className = 'cgrid';
+    for (const c of CONNECTORS) {
+      const live = c.kind === 'google' ? googleLive : !!mcpFor(c.id);
+      const card = document.createElement('div');
+      card.className = 'ccard' + (live ? ' live' : '');
+      const ic = document.createElement('span');
+      ic.className = 'ci';
+      ic.textContent = c.icon;
+      const info = document.createElement('div');
+      info.className = 'cinfo';
+      const nm = document.createElement('div');
+      nm.className = 'cname';
+      nm.textContent = c.name;
+      const ds = document.createElement('div');
+      ds.className = 'cdesc';
+      ds.textContent = live && c.kind === 'google' ? googleEmail : c.desc;
+      info.append(nm, ds);
+      const btn = document.createElement('button');
+      btn.className = live ? '' : 'pri';
+      btn.textContent = live ? '✓ Konektado' : 'Connect';
+      btn.onclick = () => (live ? disconnect(c) : connect(c, card));
+      card.append(ic, info, btn);
+      grid.append(card);
+    }
+    box.append(grid);
+
+    const foot = document.createElement('div');
+    foot.className = 'dim';
+    foot.textContent = googleLive
+      ? 'Isang Google account ang gamit ng Gmail, Sheets, Calendar, at Drive.'
+      : 'Pindutin ang Connect sa gusto mong gamitin. Isang beses lang ang setup ng Google.';
+    box.append(foot);
+  };
+
+  const disconnect = async (c) => {
+    if (c.kind === 'google') {
+      await chrome.storage.local.set({ googleEmail: '', googleOn: false });
+    } else {
+      const { mcpServers = [] } = await chrome.storage.local.get('mcpServers');
+      await chrome.storage.local.set({
+        mcpServers: mcpServers.filter((s) => (s.name || '').toLowerCase() !== c.id),
+      });
+    }
+    paint();
+  };
+
+  // Ang setup ay lumalabas LANG kapag pinindot ang Connect, at nasa ilalim ng card
+  // na pinindot — hindi na binabaha ng hakbang ang buong view pagbukas.
+  const connect = (c, card) => {
+    const old = box.querySelector('.csetup');
+    if (old) old.remove();
+    const wrap = document.createElement('div');
+    wrap.className = 'csetup';
+    card.after(wrap);
+
+    if (c.kind === 'google') return googleSetup(wrap, paint);
+    return mcpSetup(wrap, c, paint);
+  };
+
+  const mcpSetup = (wrap, c, done) => {
+    const hint = document.createElement('div');
+    hint.className = 'dim';
+    hint.append(`${c.desc}. `);
+    if (c.get) {
+      const a = document.createElement('a');
+      a.href = c.get;
+      a.target = '_blank';
+      a.textContent = 'Kunin ang URL mo dito →';
+      hint.append(a);
+    }
+    const url = document.createElement('input');
+    url.placeholder = c.hint;
+    const tok = document.createElement('input');
+    tok.type = 'password';
+    tok.placeholder = 'Token (kung kailangan)';
+    const go = document.createElement('button');
+    go.className = 'pri';
+    go.textContent = 'I-test at i-connect';
+    go.onclick = async () => {
+      if (!url.value.trim()) return;
+      go.textContent = 'Sinusubukan…';
+      try {
+        const n = await mcpPing(url.value.trim(), tok.value.trim());
+        const { mcpServers = [] } = await chrome.storage.local.get('mcpServers');
+        mcpServers.push({ name: c.id, url: url.value.trim(), token: tok.value.trim(), on: true });
+        await chrome.storage.local.set({ mcpServers });
+        wrap.remove();
+        done();
+      } catch (e) {
+        go.textContent = `✗ ${String(e.message).slice(0, 36)} — subukan ulit`;
+      }
+    };
+    wrap.append(hint, url, tok, go);
+  };
+
+  // Ang Google Cloud steps ay nakatago sa likod ng "Paano kumuha ng Client ID?" —
+  // kung may Client ID ka na, isang pindot lang ang Connect.
+  const googleSetup = async (wrap, done) => {
+    const { googleClientId } = await chrome.storage.local.get('googleClientId');
+
+    const doConnect = async (btn) => {
+      btn.textContent = 'Binubuksan ang Google…';
+      try {
+        const email = await googleConnect();
+        await chrome.storage.local.set({ googleEmail: email, googleOn: true });
+        wrap.remove();
+        done();
+      } catch (e) {
+        btn.textContent = `✗ ${String(e.message).slice(0, 40)}`;
+      }
+    };
+
+    if (googleClientId) {
+      const hint = document.createElement('div');
+      hint.className = 'dim';
+      hint.textContent = 'Handa na — pipili ka lang ng Google account.';
+      const go = document.createElement('button');
+      go.className = 'pri';
+      go.textContent = 'Magpatuloy sa Google';
+      go.onclick = () => doConnect(go);
+      const reset = document.createElement('button');
+      reset.textContent = 'Palitan ang Client ID';
+      reset.onclick = async () => {
+        await chrome.storage.local.set({ googleClientId: '' });
+        wrap.replaceChildren();
+        googleSetup(wrap, done);
+      };
+      wrap.append(hint, go, reset);
+      return;
+    }
+
+    const lead = document.createElement('div');
+    lead.className = 'dim';
+    lead.textContent = 'Isang beses lang ito. Kailangan ng sariling Client ID dahil walang server ang extension.';
+    const cid = document.createElement('input');
+    cid.placeholder = 'I-paste ang Client ID (….apps.googleusercontent.com)';
+    const go = document.createElement('button');
+    go.className = 'pri';
+    go.textContent = 'I-save at i-connect';
+    go.onclick = async () => {
+      if (!cid.value.trim()) return;
+      await chrome.storage.local.set({ googleClientId: cid.value.trim() });
+      doConnect(go);
+    };
+
+    // Ang mahabang gabay ay NAKATAGO — bukas lang kung kailangan.
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.textContent = 'Paano kumuha ng Client ID? (5 minuto)';
+    const steps = document.createElement('div');
+    steps.className = 'csteps';
+    const step = (n, html) => {
+      const d = document.createElement('div');
+      d.innerHTML = `<b>${n}.</b> ${html}`;
+      return d;
+    };
+    const uri = document.createElement('div');
+    uri.className = 'curi';
+    uri.textContent = chrome.identity.getRedirectURL();
+    uri.title = 'I-click para kopyahin';
+    uri.onclick = () => {
+      navigator.clipboard.writeText(chrome.identity.getRedirectURL());
+      uri.textContent = '✓ Nakopya — i-paste sa Authorized redirect URIs';
+      setTimeout(() => (uri.textContent = chrome.identity.getRedirectURL()), 3000);
+    };
+    steps.append(
+      step(1, 'Buksan ang <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Credentials</a> at gumawa ng project.'),
+      step(2, 'I-enable ang <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank">Gmail</a>, <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank">Sheets</a>, <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank">Calendar</a>, at <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank">Drive</a> API.'),
+      step(3, 'Create Credentials → OAuth client ID → <b>Web application</b>.'),
+      step(4, 'Sa <b>Authorized redirect URIs</b>, idagdag ito (i-click para kopyahin):'),
+      uri,
+      step(5, 'Kopyahin ang Client ID at i-paste sa itaas.')
+    );
+    det.append(sum, steps);
+    wrap.append(lead, cid, go, det);
+  };
+
+  await paint();
 };
 
 function maybeSpeak(text) {
@@ -1253,6 +1299,9 @@ const SAYS = {
   gmail_search: (a) => `Naghahanap sa Gmail: "${String(a.query).slice(0, 40)}"${why(a)}`,
   gmail_read: () => 'Binabasa ang email',
   gmail_send: (a) => `✉ Nagpapadala kay ${a.to}: "${String(a.subject).slice(0, 40)}"`,
+  calendar_list: (a) => `📅 Tinitingnan ang kalendaryo (${a.days || 7} araw)`,
+  calendar_create: (a) => `📅 Naglalagay sa kalendaryo: "${String(a.title).slice(0, 40)}"`,
+  drive_search: (a) => `📁 Hinahanap sa Drive: "${String(a.query).slice(0, 30)}"`,
   sheets_read: (a) => `Binabasa ang Sheet ${String(a.range || '').slice(0, 20)}`,
   sheets_append: (a) => `Nagdadagdag ng ${(a.rows || []).length} hilera sa Sheets`,
   _skill: (a) => `📚 Natutunan ang daloy sa ${a.domain} — magagamit muli sa susunod`,

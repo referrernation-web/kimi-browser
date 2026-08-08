@@ -313,6 +313,41 @@
       .hubbox .chips button { font-size: 11px; padding: 3px 9px; border-radius: 99px; }
       .hubbox .chips button.sel { border-color: var(--accent); color: var(--accent); font-weight: 700; }
 
+      /* --- CONNECTORS: malinis na card grid, tulad ng sa Claude --- */
+      .connbox .cgrid { display: grid; gap: 6px; }
+      .connbox .ccard {
+        display: flex; align-items: center; gap: 10px;
+        border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: var(--bg);
+      }
+      .connbox .ccard.live { border-color: var(--ask); background: color-mix(in srgb, var(--ask) 6%, var(--bg)); }
+      .connbox .ccard .ci { font-size: 18px; flex: none; width: 22px; text-align: center; }
+      .connbox .ccard .cinfo { flex: 1; min-width: 0; }
+      .connbox .ccard .cname { font-size: 12.5px; font-weight: 600; }
+      .connbox .ccard .cdesc {
+        color: var(--dim); font-size: 10.5px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .connbox .ccard button { flex: none; font-size: 11.5px; padding: 5px 12px; }
+      .connbox .ccard button.pri {
+        border-color: var(--accent); color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 10%, transparent);
+      }
+      /* Ang setup ay lumalabas sa ilalim ng card na pinindot, hindi sa buong view. */
+      .connbox .csetup {
+        display: grid; gap: 6px; padding: 10px; margin: -2px 0 2px;
+        border: 1px solid var(--accent); border-radius: 10px;
+        background: color-mix(in srgb, var(--accent) 5%, transparent);
+      }
+      .connbox .csetup summary { cursor: pointer; color: var(--accent); font-size: 11.5px; user-select: none; }
+      .connbox .csteps { display: grid; gap: 5px; margin-top: 6px; color: var(--dim); font-size: 11px; line-height: 1.5; }
+      .connbox .csteps b { color: var(--accent); }
+      .connbox .csteps a, .connbox .csetup a { color: var(--accent); }
+      .connbox .curi {
+        border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; cursor: pointer;
+        background: var(--field); font: 10.5px/1.4 ui-monospace, monospace;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+
       /* --- CONNECTORS gallery — parang kay Claude: listahan, Connect, status --- */
       .connbox { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--panel); display: grid; gap: 10px; }
       .connbox .crow {

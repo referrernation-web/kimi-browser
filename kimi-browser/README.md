@@ -3,6 +3,22 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.18.0 (bagong Connectors — card grid tulad ng sa Claude)
+
+Ang lumang Connectors view ay binabaha ka agad ng limang hakbang ng Google Cloud setup
+pagbukas pa lang. Malinis na card grid na ito ngayon, at **nakatago ang setup hanggang
+pindutin mo ang Connect**.
+
+- **Siyam na connector card** — Gmail, Google Sheets, Google Calendar, Google Drive,
+  Zapier, Notion, Composio, GitHub, at Custom. Bawat isa ay may icon, pangalan,
+  paglalarawan, at **Connect** button. Berde ang card kapag konektado na.
+- **Isang Google account para sa apat** — Gmail, Sheets, Calendar, at Drive ay iisang
+  consent lang. Kapag konektado na, email mo ang nakalagay sa card.
+- **Nakatago ang mahabang gabay** — ang limang hakbang ng Google Cloud ay nasa likod ng
+  "Paano kumuha ng Client ID? (5 minuto)". Kung may Client ID ka na, isang pindot lang.
+- **Tatlong bagong tool**: `calendar_list`, `calendar_create`, at `drive_search` —
+  walo na ang Google tools.
+
 ## Anong bago sa v0.17.1 (mga file card, tulad ng sa Claude)
 
 Ang export ay hilera dati ng button (`⤓ .docx`, `⤓ .pdf`…). Ngayon, **file card na** —

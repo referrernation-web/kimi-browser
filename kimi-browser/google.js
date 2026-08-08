@@ -5,9 +5,13 @@
 // Ang token ay itinatago sa memorya lang; kapag nag-expire, tahimik muna ang pagbawi
 // at interactive na lang kapag talagang kailangan ng tao.
 
+// Isang consent para sa lahat ng Google app — Gmail, Sheets, Calendar, at Drive.
+// Mas mabuting isang beses tanungin ang user kaysa tuwing may bagong app.
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
@@ -128,6 +132,53 @@ export const GOOGLE_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'calendar_list',
+      description:
+        'Tingnan ang mga nakatakdang event sa Google Calendar ng user. Gamitin kapag tinatanong ang schedule, kung libre ba siya, o ano ang susunod na meeting.',
+      parameters: {
+        type: 'object',
+        properties: {
+          days: { type: 'number', description: 'Ilang araw mula ngayon. Default 7.' },
+          query: { type: 'string', description: 'Opsyonal: salitang hahanapin sa mga event.' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'calendar_create',
+      description:
+        'Maglagay ng bagong event sa Google Calendar ng user. TOTOO itong pagdaragdag sa kalendaryo niya — siguraduhing tama ang petsa at oras bago tumawag.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          start: { type: 'string', description: 'ISO 8601, hal. "2026-08-12T14:00:00+08:00".' },
+          end: { type: 'string', description: 'ISO 8601. Kung wala, isang oras pagkatapos ng start.' },
+          notes: { type: 'string', description: 'Opsyonal na paglalarawan.' },
+        },
+        required: ['title', 'start'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'drive_search',
+      description:
+        'Hanapin ang mga file sa Google Drive ng user na nagawa o naibahagi sa Dianna. Ibinabalik ang pangalan, uri, at link.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'Pangalan o bahagi ng pangalan ng file.' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'sheets_read',
       description: 'Basahin ang isang saklaw sa Google Sheets. Ang spreadsheet id ay ang mahabang bahagi ng URL sa pagitan ng /d/ at /edit.',
       parameters: {
@@ -226,6 +277,52 @@ export async function runGoogleTool(name, args) {
         body: JSON.stringify({ raw: b64url(raw) }),
       });
       return { ok: true, id: r.id, naipadala_kay: args.to };
+    }
+    case 'calendar_list': {
+      const days = Math.min(Math.max(Math.round(args.days || 7), 1), 60);
+      const now = new Date();
+      const max = new Date(now.getTime() + days * 86400000);
+      const q = args.query ? `&q=${encodeURIComponent(args.query)}` : '';
+      const r = await api(
+        `/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&timeMax=${max.toISOString()}` +
+          `&singleEvents=true&orderBy=startTime&maxResults=25${q}`
+      );
+      const mga_event = (r.items || []).map((e) => ({
+        pamagat: e.summary || '(walang pamagat)',
+        simula: e.start?.dateTime || e.start?.date,
+        katapusan: e.end?.dateTime || e.end?.date,
+        lugar: e.location || undefined,
+      }));
+      return mga_event.length
+        ? { bilang: mga_event.length, mga_event }
+        : { bilang: 0, mga_event: [], tala: `Walang nakatakda sa susunod na ${days} araw.` };
+    }
+    case 'calendar_create': {
+      const start = args.start;
+      const end = args.end || new Date(new Date(start).getTime() + 3600000).toISOString();
+      const r = await api('/calendar/v3/calendars/primary/events', {
+        method: 'POST',
+        body: JSON.stringify({
+          summary: args.title,
+          description: args.notes || undefined,
+          start: { dateTime: start },
+          end: { dateTime: end },
+        }),
+      });
+      return { ok: true, id: r.id, link: r.htmlLink, pamagat: args.title, simula: start };
+    }
+    case 'drive_search': {
+      const q = `name contains '${String(args.query).replace(/'/g, "\\'")}' and trashed = false`;
+      const r = await api(
+        `/drive/v3/files?q=${encodeURIComponent(q)}&pageSize=15&fields=files(id,name,mimeType,webViewLink,modifiedTime)`
+      );
+      const mga_file = (r.files || []).map((f) => ({
+        pangalan: f.name,
+        uri: (f.mimeType || '').split('.').pop(),
+        link: f.webViewLink,
+        binago: f.modifiedTime,
+      }));
+      return mga_file.length ? { bilang: mga_file.length, mga_file } : { bilang: 0, mga_file: [], tala: 'Walang nahanap.' };
     }
     case 'sheets_read': {
       const range = encodeURIComponent(args.range || 'A1:Z100');
