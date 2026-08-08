@@ -3,6 +3,18 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.19.0 (document preview na mukhang tunay na dokumento)
+
+Ang preview dati ay plain na teksto sa loob ng card. Ngayon, **mukha na itong tunay na
+pahina**: puting papel, serif na tipo (Georgia), nakasentrong pamagat, at maluwag na
+margin. Mababasa mo na ang artikulo sa panel mismo bago mag-download.
+
+- **⛶ Buksan nang buo** — bagong buton na nagbubukas ng buong-pahina na bersyon sa
+  bagong tab, naka-layout na parang naka-print na papel. Doon mo komportableng
+  mapo-proofread ang 2,000-salitang artikulo, at ang **Ctrl+P ay nagiging PDF** na may
+  tamang margin at page size.
+- Sinusuportahan na rin ng preview ang blockquote at bold.
+
 ## Anong bago sa v0.18.0 (bagong Connectors — card grid tulad ng sa Claude)
 
 Ang lumang Connectors view ay binabaha ka agad ng limang hakbang ng Google Cloud setup

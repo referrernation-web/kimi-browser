@@ -258,15 +258,27 @@
       .doccard .filecard .ftype { color: var(--dim); font-size: 10.5px; }
       .doccard .filecard button { flex: none; font-size: 11.5px; padding: 5px 12px; }
       .doccard details summary { cursor: pointer; color: var(--accent); font-size: 11.5px; user-select: none; }
+      /* Ang preview ay mukhang TUNAY NA PAHINA — puting papel, serif, may margin.
+         Dito mo mapo-proofread ang artikulo nang hindi mo pa kailangang i-download. */
       .doccard .docbody {
-        max-height: 300px; overflow-y: auto; margin-top: 7px; padding: 9px;
-        border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12px;
+        max-height: 340px; overflow-y: auto; margin-top: 7px;
+        padding: 20px 18px; border: 1px solid var(--line); border-radius: 8px;
+        background: #fff; color: #1a1a1a;
+        font: 12.5px/1.65 Georgia, "Times New Roman", ui-serif, serif;
+        box-shadow: inset 0 1px 6px #00000010;
       }
-      .doccard .docbody h1 { font-size: 15px; margin: 0 0 6px; }
-      .doccard .docbody h2 { font-size: 13.5px; margin: 10px 0 5px; }
-      .doccard .docbody h3 { font-size: 12.5px; margin: 8px 0 4px; }
-      .doccard .docbody p, .doccard .docbody li { margin: 0 0 6px; line-height: 1.55; }
-      .doccard .docbody ul { margin: 0 0 6px; padding-left: 18px; }
+      .doccard .docbody h1 {
+        font-size: 17px; line-height: 1.3; margin: 0 0 12px; text-align: center;
+        font-weight: 700; letter-spacing: .01em;
+      }
+      .doccard .docbody h2 { font-size: 14px; margin: 16px 0 6px; font-weight: 700; }
+      .doccard .docbody h3 { font-size: 12.5px; margin: 12px 0 5px; font-weight: 700; }
+      .doccard .docbody p, .doccard .docbody li { margin: 0 0 9px; }
+      .doccard .docbody ul, .doccard .docbody ol { margin: 0 0 9px; padding-left: 20px; }
+      .doccard .docbody blockquote {
+        margin: 0 0 9px; padding-left: 12px; border-left: 3px solid #ddd; color: #555;
+      }
+      .doccard .docbody strong { font-weight: 700; }
       .doccard .docbody blockquote { margin: 0 0 6px; padding-left: 9px; border-left: 2px solid var(--line); color: var(--dim); }
       .doccard .opts button { font-size: 11.5px; }
 

@@ -1426,6 +1426,38 @@ function renderDocCard(sess, m) {
 
   const row = document.createElement('div');
   row.className = 'opts';
+
+  // Buong-pahina na preview sa bagong tab: dito mo mabasa nang komportable ang
+  // 2,000-salitang artikulo bago i-download. Ctrl+P doon = PDF na naka-print layout.
+  const full = document.createElement('button');
+  full.textContent = '⛶ Buksan nang buo';
+  full.onclick = async () => {
+    const doc = await docGet(sid);
+    const page = `<!doctype html><meta charset="utf-8"><title>${doc.title}</title>
+<style>
+  @page { size: letter; margin: 25mm; }
+  body { background:#f0f0f4; margin:0; padding:28px 16px 60px;
+    font:16px/1.7 Georgia,"Times New Roman",serif; color:#1a1a1a; }
+  .sheet { background:#fff; max-width:760px; margin:0 auto; padding:64px 72px;
+    box-shadow:0 3px 18px #00000022; border-radius:2px; }
+  h1 { font-size:27px; line-height:1.25; text-align:center; margin:0 0 28px; }
+  h2 { font-size:20px; margin:30px 0 10px; }
+  h3 { font-size:17px; margin:22px 0 8px; }
+  p, li { margin:0 0 13px; }
+  ul, ol { padding-left:26px; }
+  blockquote { margin:0 0 13px; padding-left:16px; border-left:3px solid #ddd; color:#555; }
+  .meta { text-align:center; color:#888; font:12px/1.5 ui-sans-serif,system-ui,sans-serif;
+    margin:-18px 0 30px; }
+  @media print { body { background:#fff; padding:0; } .sheet { box-shadow:none; max-width:none; padding:0; } }
+</style>
+<div class="sheet"><h1>${doc.title}</h1>
+<div class="meta">${doc.words} salita · ${doc.sections.length} seksyon · Ctrl+P para i-print o gawing PDF</div>
+${await docAsHtml(sid)}</div>`;
+    const url = URL.createObjectURL(new Blob([page], { type: 'text/html' }));
+    chrome.tabs.create({ url });
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  };
+
   const all = document.createElement('button');
   all.textContent = '⤓ Download all';
   all.onclick = async () => {
@@ -1446,7 +1478,7 @@ function renderDocCard(sess, m) {
     copy.textContent = '✓ Nakopya';
     setTimeout(() => (copy.textContent = '📋 Kopyahin'), 2500);
   };
-  row.append(all, copy);
+  row.append(full, all, copy);
   box.append(row);
   log.scrollTop = log.scrollHeight;
 }
