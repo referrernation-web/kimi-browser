@@ -3,6 +3,22 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.19.1 (mas madaling gamitin)
+
+Tatlong bagay na hinango sa mga totoong nasagasaan namin habang ginagawa ito:
+
+- **Mga starter sa blangkong usapan** — hindi na blangkong kahon ang bubungad. Anim na
+  mapipinduting alok (Sumulat ng artikulo, Ihambing ang presyo, Itaas ang RankMath score,
+  Tingnan ang Gmail, Ilagay sa Sheets, Basahin ang page). Ang "Sumulat ng artikulo" ay
+  kusang lumilipat sa 📝 Write. Kapag may naka-attach na project, sinasabi nito kung ilang
+  dokumento ang gagamitin.
+- **Alok na lumipat sa Write mode** — kapag pagsulat ang tinipa mo pero nasa Adaptive ka,
+  may isang linyang lumalabas bago mo pa ipadala. Ito mismo ang pumipigil sa sablay na
+  napunta sa chat ang artikulo imbes na sa dokumento.
+- **Errors sa wika ng tao** — ang "API 401: invalid_api_key" ay nagiging "Hindi tinanggap
+  ang API key. Buksan ang ⚙ at pindutin ang I-test." Pitong karaniwang error ang may
+  ganitong pagsasalin, at bawat isa ay may SAGOT, hindi lang sisi.
+
 ## Anong bago sa v0.19.0 (document preview na mukhang tunay na dokumento)
 
 Ang preview dati ay plain na teksto sa loob ng card. Ngayon, **mukha na itong tunay na

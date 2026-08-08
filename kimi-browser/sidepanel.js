@@ -184,7 +184,103 @@ function renderLog() {
   const s = active();
   if (!s) return;
   for (const e of s.transcript) renderEntry(e);
+  if (!s.transcript.length) showStarters(); // blangkong usapan — mag-alok ng simula
   log.scrollTop = log.scrollHeight;
+}
+
+// --- STARTERS: hindi blangkong kahon ang bubungad ---
+// Ang blangkong "Ano ang gusto mong gawin?" ay nakakatakot sa hindi programmer.
+// Dito ipinapakita kung ANO ang kaya niya, mapipindot at agad tatakbo. Kapag may
+// naka-attach na project, ang mga alok ay hinuhugot mula sa uri ng trabaho doon.
+const STARTERS = [
+  { icon: '📝', label: 'Sumulat ng artikulo', mode: 'write',
+    text: 'Sumulat ka ng 800-salitang artikulo tungkol sa ' },
+  { icon: '🔍', label: 'Ihambing ang mga presyo', mode: null,
+    text: 'Hanapan mo ako ng pinakasulit na ' },
+  { icon: '📈', label: 'Itaas ang RankMath score', mode: null,
+    text: 'Buksan ang post na ito at itaas ang RankMath score — ayusin lahat ng failing check.' },
+  { icon: '✉️', label: 'Tingnan ang Gmail', mode: null,
+    text: 'Ano ang mga bagong email ko ngayong araw? Ibuod mo ang mahahalaga.' },
+  { icon: '📊', label: 'Ilagay sa Sheets', mode: null,
+    text: 'Kolektahin mo ang nasa page na ito at ilagay sa Google Sheet ko.' },
+  { icon: '👀', label: 'Basahin ang page na ito', mode: null,
+    text: 'Basahin mo ang page na ito at sabihin ang mahahalagang punto.' },
+];
+
+async function showStarters() {
+  const box = document.createElement('div');
+  box.className = 'starters';
+
+  const b = document.createElement('b');
+  b.textContent = 'Ano ang gagawin natin?';
+  box.append(b);
+
+  let proj = null;
+  try {
+    const F = await import('./files.js');
+    proj = await F.projectForSession(active()?.id);
+  } catch {}
+
+  const sub = document.createElement('div');
+  sub.className = 'dim';
+  sub.textContent = proj
+    ? `Naka-attach ang project na "${proj.name}" — gagamitin niya ang ${proj.files.length} dokumento doon.`
+    : 'Pindutin ang isa, o magsulat ka lang ng sarili mong utos sa ibaba.';
+  box.append(sub);
+
+  const grid = document.createElement('div');
+  grid.className = 'sgrid';
+  for (const s of STARTERS) {
+    const btn = document.createElement('button');
+    btn.className = 'scard';
+    const ic = document.createElement('span');
+    ic.className = 'si';
+    ic.textContent = s.icon;
+    const tx = document.createElement('span');
+    tx.textContent = s.label;
+    btn.append(ic, tx);
+    btn.onclick = () => {
+      if (s.mode) {
+        $('mode').value = s.mode;
+        chrome.storage.local.set({ mode: s.mode });
+        showHint();
+      }
+      $('ask').value = s.text;
+      $('ask').focus();
+      // Kapag may natapos nang pangungusap, sa dulo ilagay ang cursor.
+      $('ask').setSelectionRange(s.text.length, s.text.length);
+      box.remove();
+    };
+    grid.append(btn);
+  }
+  box.append(grid);
+  log.append(box);
+}
+
+// --- ERRORS SA WIKA NG TAO ---
+// Ang "API 401: invalid_api_key" ay walang sinasabi sa isang VA. Dito ito ginagawang
+// pangungusap na may SAGOT — hindi lang kung ano ang mali, kundi ano ang gagawin.
+const ERROR_MAP = [
+  [/API 401|invalid[_ ]api[_ ]key|unauthorized/i,
+   'Hindi tinanggap ang API key. Buksan ang ⚙ at pindutin ang "I-test" — kung ✗ ang lumabas, mali o expired na ang key.'],
+  [/API 429|rate[_ ]limit|quota|insufficient/i,
+   'Naubos o naabot na ang limitasyon ng plano mo sa provider. Maghintay ng ilang minuto, o lumipat ng model sa ⚙.'],
+  [/API 4\d\d.*model|model.*not.*(found|exist)|invalid model/i,
+   'Walang ganitong model sa provider mo. Buksan ang ⚙ at pumili sa dropdown — live iyon mula sa provider.'],
+  [/Failed to fetch|NetworkError|ERR_INTERNET|ERR_NAME/i,
+   'Hindi maabot ang server. Tingnan ang internet mo, tapos subukan ulit.'],
+  [/Hindi maaabot ng extension/i,
+   'Browser-internal page ito (chrome:// o extension page) — hindi ito kayang basahin ng kahit anong extension. Magbukas ng normal na website.'],
+  [/Walang scope group/i,
+   'Wala pa siyang tab na mapagtatrabahuhan. Magbukas ng website sa isang tab, tapos magpadala ulit ng utos.'],
+  [/QUOTA_BYTES|quota exceeded/i,
+   'Puno na ang storage ng extension. Buksan ang 🧠 at magbura ng ilang tala, o ang 📁 at mag-alis ng dokumento.'],
+];
+
+function humanError(text) {
+  const raw = String(text || '');
+  for (const [re, msg] of ERROR_MAP) if (re.test(raw)) return msg;
+  return raw;
 }
 
 function renderEntry(e) {
@@ -204,6 +300,7 @@ function renderEntry(e) {
       });
     });
   }
+  else if (e.t === 'error') add('error', humanError(e.text));
   else add(e.t, e.text, e.model);
 }
 
@@ -2751,6 +2848,45 @@ $('ask').onkeydown = (e) => {
     e.preventDefault();
     submit(false);
   }
+};
+
+// --- MODE HINT: pinipigilan ang pinakamadalas na pagkakamali ---
+// Kapag pagsulat ang hinihingi mo pero nasa Adaptive ka (24 tools), madalas hindi
+// mapipili ng maliit na model ang write_document at sa chat mapupunta ang artikulo.
+// Isang linyang alok ang lumalabas bago mo pa ipadala — isang pindot at ayos na.
+const WRITE_WORDS = /\b(sumulat|isulat|magsulat|gumawa ng artikulo|artikulo|article|blog|draft|dokumento|report|ulat|sanaysay)\b/i;
+const hintRow = document.createElement('div');
+hintRow.className = 'modehint';
+hintRow.style.display = 'none';
+$('ask').parentElement.parentElement.insertBefore(hintRow, $('ask').parentElement);
+
+$('ask').oninput = () => {
+  const t = $('ask').value;
+  const wantsWrite = WRITE_WORDS.test(t) && t.length > 12;
+  const show = wantsWrite && $('mode').value !== 'write';
+  if (!show) {
+    hintRow.style.display = 'none';
+    return;
+  }
+  if (hintRow.dataset.shown === '1') return;
+  hintRow.dataset.shown = '1';
+  hintRow.style.display = '';
+  hintRow.replaceChildren();
+  const tx = document.createElement('span');
+  tx.textContent = 'Mukhang pagsulat ito. Sa 📝 Write mode, diretso ito sa dokumento na may DOCX at PDF.';
+  const go = document.createElement('button');
+  go.textContent = 'Lumipat sa Write';
+  go.onclick = () => {
+    $('mode').value = 'write';
+    chrome.storage.local.set({ mode: 'write' });
+    showHint();
+    hintRow.style.display = 'none';
+  };
+  const no = document.createElement('button');
+  no.textContent = '✕';
+  no.title = 'Huwag na';
+  no.onclick = () => (hintRow.style.display = 'none');
+  hintRow.append(tx, go, no);
 };
 
 // --- BOOT ---

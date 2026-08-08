@@ -282,6 +282,27 @@
       .doccard .docbody blockquote { margin: 0 0 6px; padding-left: 9px; border-left: 2px solid var(--line); color: var(--dim); }
       .doccard .opts button { font-size: 11.5px; }
 
+      /* --- STARTERS: ang bubungad sa blangkong usapan --- */
+      .starters { display: grid; gap: 9px; padding: 4px 2px; }
+      .starters > b { font-size: 13.5px; }
+      .starters .sgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .starters .scard {
+        display: flex; align-items: center; gap: 8px; text-align: left;
+        border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px;
+        background: var(--panel); font-size: 11.5px; line-height: 1.35;
+      }
+      .starters .scard:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+      .starters .scard .si { font-size: 15px; flex: none; }
+
+      /* --- MODE HINT: isang linyang alok bago mo pa ipadala --- */
+      .modehint {
+        display: flex; gap: 6px; align-items: center; margin-bottom: 6px;
+        border: 1px solid var(--accent); border-radius: 8px; padding: 6px 9px;
+        background: color-mix(in srgb, var(--accent) 9%, transparent); font-size: 11px; line-height: 1.4;
+      }
+      .modehint span { flex: 1; }
+      .modehint button { padding: 3px 9px; font-size: 11px; flex: none; }
+
       /* --- PROJECTS: mga dokumentong ibinibigay mo --- */
       .projbox { border: 1px solid var(--line); border-radius: 10px; padding: 11px; background: var(--panel); display: grid; gap: 9px; }
       .projbox > b { font-size: 13px; }
