@@ -120,8 +120,21 @@ const p2 = await F.createProject('Bagong kliyente');
 await F.addFile(p2.id, 'brief.md', 'Isang maikling brief tungkol sa serbisyo ng kliyente. '.repeat(20));
 await F.attachSession('s2', p2.id);
 const w2 = await F.projectPrompt('s2', 'write');
-assert.match(w2, /WALANG NAKAMARKANG/, 'malinaw na sinasabi kapag walang 📌 o 🎨');
-assert.match(w2, /HUWAG kang mag-imbento/, 'tahasang ipinagbabawal ang pag-iimbento ng palette');
+assert.match(w2, /WALANG FILE NA NAKAMARKAHAN/, 'malinaw na sinasabi kapag walang 📌 o 🎨');
+assert.match(w2, /huwag kang mag-imbento/i, 'tahasang ipinagbabawal ang pag-iimbento ng palette');
+// ANG SALITA DITO AY MAHALAGA, AT NAPATUNAYAN ITO SA TOTOONG PAGGAMIT.
+// Ang unang bersyon ay nagsabing "WALANG MASTER PROMPT O TEMPLATE sa project na ito".
+// Binasa iyon ng auditor bilang "walang design system ang project" at tinawag niyang
+// imbento ang isang disenyong TOTOONG nasa mga dokumento — dalawang beses, at dalawang
+// beses nagpasulat muli ng tapos nang artikulo. Anim na dagdag na model call.
+// Ang totoong sinasabi ay: walang na-TAG na file, kaya walang naipasok nang buo.
+assert.ok(
+  !/walang disenyong masusunod/i.test(w2),
+  'HUWAG sabihing walang disenyo ang project — ang sinasabi lang ay walang na-tag na file. ' +
+    'Ang lumang pariralang ito ang binasa ng auditor bilang "imbento ang lahat", dalawang beses.'
+);
+assert.match(w2, /HINDI ito nangangahulugang walang design system/, 'malinaw ang pagkakaiba');
+assert.match(w2, /search_files/, 'itinuturo ang paraan para hanapin ito sa mga dokumento');
 
 // ---------- Sobrang laki: middle-out, at nananatiling mahahanap ----------
 const sobra = 'PART 1: SIMULA\nUNANG-SENTINEL\n' +

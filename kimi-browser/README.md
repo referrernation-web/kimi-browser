@@ -3,6 +3,54 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.26.0 (ang checklist bilang code, at ang bakit-hindi-lumalabas-sa-Shopify)
+
+**Ang checker.** Ang Part 13 ay 40 aytem; **26 ang masusukat ng code** nang walang model
+call at walang pagkakaiba sa bawat takbo. Naka-calibrate ito sa gold standard mismo ng
+user: **24/27**, at ang tatlong bumagsak doon ay totoo (dalawang table lang, apat na H2
+na walang `id`, walang `positiveNotes`). Apat na panuntunan ko ang mali at ipinakita ng
+gold standard: ang regex ng presyo ay umuurong sa `$1` mula sa `$1,100 CAD`; ang H1 ay
+dapat **zero** sa Shopify dahil ang tema ang naglalagay nito; ang `hamuq.com/…/hamuq-vs-douglas`
+ay panloob na link kahit may "douglas"; at ang `_1600x` ay tamang hero, hindi thumbnail.
+Ang checker na may maling alarma ay ipinagwawalang-bahala, kaya iyon ang unang inayos.
+
+Lalabas ito sa doc card, may **"✉ Ipaayos ang bumagsak"** na nagbabalik ng listahan sa
+modelo bilang utos. Ang parehong artikulong ginawa ni Dianna: **18/27**.
+
+**Bakit hindi lumalabas sa Shopify** — tatlong sanhi, lahat nahuhuli na ngayon:
+1. Nagsisimula ang export sa `<!doctype html>`. Ang laman ng blog ay **fragment**.
+2. Limang magkakapatid na `<div class="hq-article">` — isa kada tawag ng `write_document`.
+3. Nasa **visual editor** ka. Sabi mismo ng master prompt (Part 3): code view (`</>`) lang.
+
+Bagong export na **`Shopify (code view)`**: fragment, isang wrapper, walang doctype.
+
+**Ang 12 klaseng walang CSS.** Sa isang totoong artikulo, 12 sa 45 na `hq-` na klase ang
+ginamit pero walang CSS — `.hq-ctacard` gayong `.hq-cta-card` ang tinukoy, at `.hq-verdict`
+at `.hq-sources` na wala talaga. Arkitektura ito, hindi katamaran: isinusulat ang `<style>`
+sa unang seksyon, tapos ang mga sumunod ay isinusulat nang **hindi na ito nakikita**.
+Ibinabalik na ngayon ng `write_document` ang listahan ng klase sa bawat sagot.
+
+**Kusang minamarkahan ang 📌 at 🎨.** Ang pagpindot ng dalawang buton ay hakbang na madaling
+makalimutan, at tahimik ang kabiguan. Sa isang totoong takbo: **labimpitong `search_files`**
+bago pa makapagsulat ng isang salita, dahil hindi napindot ang mga iyon. Kinikilala na ang
+mga file sa hugis nila, pati sa mga na-upload na dati.
+
+**Patay ang second brain sa Write mode.** Ginawa ito para sa isang tanong: totoo bang ginawa
+ng agent ang sinabi niya? Hindi nito nakikita ang dokumento — ang chat reply lang. Nakita sa
+totoong takbo: tapos na ang artikulo at tama ang disenyo; **tatlo pang audit ang tumakbo,
+dalawa doon ay nag-utos ng pagsulat muli** dahil akala ng auditor ay imbento ang isang
+disenyong totoong nasa mga dokumento. Anim na dagdag na model call sa isang bagay na tapos
+na. Ang `lint.js` ang tagasuri dito: nakikita nito ang mismong dokumento at libre.
+
+**At ang salitang nagsimula ng lahat.** Ang `"WALANG NAKAMARKANG MASTER PROMPT O TEMPLATE"`
+ay binasa ng auditor bilang "walang design system ang project". Magkaibang bagay iyon.
+Malinaw na ngayon: walang na-**tag** na file, kaya walang naipasok — hindi ibig sabihing
+walang disenyo sa mga dokumento.
+
+**Ang `⛶ Buksan nang buo` ay hindi na namamatay.** Ang `ERR_FILE_NOT_FOUND` sa tab mo ay
+na-revoke na blob URL — pinapatay ito ng dating code pagkalipas ng dalawang minuto, at
+kapag isinara ang panel. Tunay nang pahina ng extension ngayon na bumabasa mula sa storage.
+
 ## Anong bago sa v0.25.0 (isang regression ko, at ang aral na natutunan mula sa bug)
 
 > ⚠ **Ang v0.23.0 at v0.24.0 ay may regression na ako ang gumawa.** Ang mga threshold

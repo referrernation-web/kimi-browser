@@ -1449,6 +1449,19 @@ chrome.runtime.onConnect.addListener((port) => {
     // ang average ang consensus. Magkahiwalay na tawag, magkakasabay tumatakbo.
     async function runAudit(finalText) {
       if (!audit || !finalText) return null;
+      // HINDI SA WRITE MODE. Ang second brain ay ginawa para sa isang tanong: totoo bang
+      // ginawa ng agent ang sinasabi niyang ginawa? Nakikita niya ang mga tool na tinawag
+      // at ang sagot sa chat — hindi ang dokumento. Sa isang artikulo, ang dokumento ANG
+      // gawain, at ang sagot sa chat ay buod lang nito. Kaya hinuhusgahan niya ang
+      // artikulo mula sa isang bagay na hindi ang artikulo.
+      //
+      // Nakita sa totoong takbo: tapos na ang artikulo, tama ang disenyo. Tatlo pang
+      // audit ang tumakbo pagkatapos, dalawa doon ay nag-utos ng pagsulat muli dahil
+      // akala ng auditor ay imbento ang isang disenyong TOTOONG nasa mga dokumento.
+      // Anim na dagdag na model call, dalawang compaction, dalawang paglipat ng modelo —
+      // sa isang bagay na tapos na. Ang tamang tagasuri ng artikulo ay ang lint.js:
+      // nakikita nito ang mismong dokumento, tiyak ang sagot, at walang bayad.
+      if (mode === 'write') return null;
       // Dating tahimik itong bumabagsak — kaya akala mo tumatakbo ang second brain
       // pero wala palang nangyayari. Ngayon, sinasabi na kung ano ang kulang.
       if (!auditUrl || !auditKey) {
@@ -1549,6 +1562,7 @@ chrome.runtime.onConnect.addListener((port) => {
     // "TULOY" (walang gagawin) o "IWASTO: ..." (ipinapasok sa usapan ng worker).
     async function midCheck(step) {
       if (!audit || !auditKey || !auditUrl) return;
+      if (mode === 'write') return; // tingnan ang tala sa runAudit — ang lint.js ang tagasuri dito
       const checkModel = String(auditModel).split(',')[0].trim();
       if (!checkModel) return;
       // Parehong bug dito gaya ng sa runAudit, at mas mabigat: ang midCheck ay

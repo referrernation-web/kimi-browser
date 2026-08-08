@@ -76,7 +76,12 @@ assert.match(prompt, /Aire One Peel/, 'kasama ang pangalan ng project');
 assert.match(prompt, /eksaktong NAP/, 'kasama ang tagubilin');
 assert.match(prompt, /sop\.docx/, 'kasama ang PANGALAN ng dokumento');
 assert.ok(!prompt.includes('Brampton'), 'ANG LAMAN AY WALA sa prompt — ito ang buong punto');
-assert.ok(prompt.length < 1200, 'maliit ang project prompt (' + prompt.length + ' chars)');
+// Ang hangganan ay 1,600 hindi 1,200: idinagdag ang hugis ng bawat file (bilang ng
+// linya, unang linya) at ang tuntuning ang kawalan sa isang ulat ng traffic ay hindi
+// patunay ng kawalan sa site. Iyon ang pumigil sa pagrekomenda ng artikulong meron na.
+// Maliit pa rin ito — ang punto ay hindi dumadaan dito ang LAMAN ng mga dokumento.
+assert.ok(prompt.length < 1600, 'maliit ang project prompt (' + prompt.length + ' chars)');
+assert.ok(!prompt.includes('Brampton'), 'ang laman ay wala pa rin dito');
 
 // --- search_files: mga tumutugmang bahagi lang ---
 const hits = await F.searchFiles('sess1', 'NAP Brampton');

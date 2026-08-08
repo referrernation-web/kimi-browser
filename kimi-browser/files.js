@@ -282,6 +282,42 @@ export function designSkeleton(html) {
 
 const looksHtml = (s) => /<!doctype|<style[\s>]|<section|<div/i.test(String(s || '').slice(0, 4000));
 
+// --- KUSANG PAGKILALA NG ROLE ---
+// Isang naipadalang artikulo: HTML na may sariling <style>. Iyon lang ang hugis na
+// mahalaga — doon nakalagay ang totoong CSS.
+const mukhangTemplate = (f, body) => /\.html?$/i.test(f.name) && /<style[\s>]/i.test(body || '');
+// Isang master prompt: mahaba, may istruktura, at may salitang tumutukoy sa pagiging
+// panuntunan. Ang 5,000 na karakter ang naghihiwalay nito sa maikling tala.
+const mukhangPrompt = (f, body) =>
+  (f.size || 0) > 5000 && /MASTER PROMPT|^\s*PART \d|^#{1,3}\s/im.test(String(body || '').slice(0, 20000));
+
+// Para sa mga project na nailagay bago ang kusang pagmamarka. Walang binabago kung
+// may nakamarka na — hindi ito nang-aagaw ng piniling mano-mano ng user.
+export function autoMark(projectId) {
+  return enqueue(async () => {
+    const ps = await get(PKEY, {});
+    const p = ps[projectId];
+    if (!p || !p.files.length) return { ok: true, binago: [] };
+    const binago = [];
+    for (const uri of ['template', 'prompt']) {
+      if (p.files.some((f) => f.role === uri)) continue;
+      const tseke = uri === 'template' ? mukhangTemplate : mukhangPrompt;
+      // Ang pinakamalaking tugma — ang buong artikulo, hindi ang piraso; ang buong
+      // prompt, hindi ang maikling tala.
+      let pinili = null;
+      for (const f of p.files) {
+        if (f.role) continue;
+        const body = await get(RAW_PREFIX + f.id, '');
+        if (!body || !tseke(f, body)) continue;
+        if (!pinili || f.size > pinili.size) pinili = f;
+      }
+      if (pinili) { pinili.role = uri; binago.push({ role: uri, name: pinili.name }); }
+    }
+    if (binago.length) await set({ [PKEY]: ps });
+    return { ok: true, binago };
+  });
+}
+
 const tok = (s) =>
   new Set(
     String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter((w) => w.length > 2)
@@ -359,10 +395,20 @@ export function addFile(projectId, name, text) {
     // sitemap at hindi ito patunay ng kawalan.
     const linya = body.split('\n').filter((l) => l.trim()).length;
     const ulo = (body.split('\n').find((l) => l.trim()) || '').trim().slice(0, 110);
-    p.files.push({
+    const f = {
       id, name: String(name).slice(0, 120), size: body.length,
       chunks: chunks.length, lines: linya, head: ulo, addedAt: Date.now(),
-    });
+    };
+    // KUSANG PAGMAMARKA. Ang pagpindot ng ☆ at 🖌 ay isang hakbang na madaling
+    // makalimutan, at ang pagkalimot ay tahimik: bumabalik lang siya sa paghahanap at
+    // gumagawa ng sariling disenyo. Sa isang totoong takbo, LABIMPITONG search_files
+    // ang ginawa niya para buuin muli ang design system mula sa prosa — bago pa
+    // makapagsulat ng kahit isang salita — dahil hindi napindot ang dalawang buton.
+    // Kilalanin na lang natin ang mga file: malinaw naman ang hugis nila.
+    const may = (r) => p.files.some((x) => x.role === r);
+    if (!may('template') && mukhangTemplate(f, body)) f.role = 'template';
+    else if (!may('prompt') && mukhangPrompt(f, body)) f.role = 'prompt';
+    p.files.push(f);
     await set({ [PKEY]: ps });
     return { ok: true, id, mga_tipak: chunks.length, laki: body.length };
   });
@@ -488,13 +534,23 @@ export async function projectPrompt(sessionId, mode) {
   // ang pinakamasamang uri ng pagbagsak — mukhang tagumpay hanggang sa makita ng
   // kliyente na mali ang kulay.
   if (!master && !template) {
+    // ANG SALITA DITO AY MAHALAGA. Ang unang bersyon ay nagsabing "WALANG MASTER PROMPT
+    // O TEMPLATE sa project na ito" — at binasa iyon ng auditor bilang "walang design
+    // system ang project", kaya tinawag niyang imbento ang isang disenyong TOTOONG nasa
+    // mga dokumento, dalawang beses, at dalawang beses nagpasulat muli ng tapos nang
+    // artikulo. Ang totoong sinasabi ay: WALANG NA-TAG NA FILE, kaya walang naipasok —
+    // hindi na walang disenyo. Magkaibang bagay iyon.
     return (
       out +
-      `\n\nWALANG NAKAMARKANG 📌 MASTER PROMPT O 🎨 TEMPLATE NG DISENYO sa project na ito. ` +
-      `SABIHIN mo ito sa user BAGO ka magsulat: walang disenyong masusunod, kaya plain na ` +
-      `markdown lang ang malilikha mo. HUWAG kang mag-imbento ng sariling palette, sariling ` +
-      `pangalan ng CSS class, o sariling istruktura at ipakita iyon na parang sa kliyente galing.` +
-      `\n\nGamitin ang search_files para sa iba pang dokumento.`
+      `\n\nWALANG FILE NA NAKAMARKAHAN NG 📌 O 🎨 sa project na ito, kaya walang laman ` +
+      `na naipasok nang buo sa itaas. HINDI ito nangangahulugang walang design system ang ` +
+      `kliyente — maaaring nasa loob ito ng mga dokumento sa listahan. Hanapin ito sa ` +
+      `search_files. Kung may makita kang tunay na palette at pangalan ng klase doon, ` +
+      `gamitin mo iyon at sabihin mo kung saang file mo ito nakuha. Kung wala talaga, ` +
+      `sabihin mo sa user bago magsulat at markdown lang ang gawin — huwag kang mag-imbento ` +
+      `ng sariling palette o klase at ipakita iyon na parang sa kliyente galing.` +
+      `\n\n(Sa user: mas mabilis at mas tiyak kung mamarkahan ang 📌 at 🎨 sa 📁 Projects — ` +
+      `awtomatikong naipapasok ang laman at hindi na kailangang maghanap.)`
     );
   }
 

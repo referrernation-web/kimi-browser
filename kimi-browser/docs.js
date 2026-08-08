@@ -66,6 +66,18 @@ const headOf = (md) => {
   return m ? m[1].trim().slice(0, 60) : s.trim().split('\n')[0].slice(0, 60);
 };
 
+// Ang mga klaseng TUNAY na may CSS sa dokumento, para hindi na siya mag-imbento ng
+// bago habang nasa gitna siya ng pagsulat.
+function classInventory(doc) {
+  const buo = doc.sections.map((s) => s.md).join('\n');
+  const style = [...buo.matchAll(/<style[\s\S]*?<\/style>/gi)].map((m) => m[0]).join('\n');
+  const klase = [...new Set([...style.matchAll(/\.([a-z][a-z0-9_-]+)\s*[,{:.]/gi)].map((m) => m[1]))];
+  return klase.length
+    ? `GAMITIN LANG ANG MGA KLASENG ITO — may CSS na sila. Huwag gumawa ng bago; ` +
+        `kung wala kang makitang bagay, gamitin ang pinakamalapit: ${klase.join(' ')}`
+    : '';
+}
+
 export function docAppend({ title, append, start_new, replace_section }) {
   return enqueue(async () => {
     const all = await loadAll();
@@ -115,6 +127,15 @@ export function docAppend({ title, append, start_new, replace_section }) {
       mga_seksyon: doc.sections.length,
       balangkas: doc.sections.map((s) => s.h),
       may_disenyo: !!doc.html, // ito ang nagpapasya kung aling file ang ibibigay sa kliyente
+      // ANG SARILI NIYANG STYLESHEET, IBINABALIK SA KANYA.
+      // Isinusulat ang <style> sa unang seksyon, tapos ang mga sumunod ay isinusulat
+      // nang HINDI na ito nakikita — hindi ibinabalik ng write_document ang laman,
+      // sinadya iyon para hindi lumaki ang konteksto. Ang bunga sa isang totoong
+      // artikulo: 12 sa 45 na klase ang ginamit pero walang CSS. Gumawa siya ng
+      // .hq-ctacard gayong .hq-cta-card ang tinukoy niya kanina, at .hq-verdict at
+      // .hq-sources na wala talaga. Walang estilo ang mga seksyong iyon paglabas.
+      // Ang listahan ng pangalan ay ilang daang karakter lang — mura kumpara doon.
+      ...(doc.html ? { mga_klase: classInventory(doc) } : {}),
       tala: 'Naidagdag sa dokumento (wala ito sa usapan, kaya hindi lumalaki ang konteksto). Isulat ang susunod na seksyon, o sabihin sa user na handa na ito sa preview card.',
     };
   });

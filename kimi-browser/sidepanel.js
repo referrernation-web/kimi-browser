@@ -1120,7 +1120,20 @@ $('proj').onclick = async () => {
   let openId = null;
 
   async function paint() {
+    // AYUSIN ANG MGA LUMANG PROJECT. Ang kusang pagmamarka ay tumatakbo sa pag-upload,
+    // pero ang mga naunang na-upload ay walang marka — at tahimik ang kabiguan: bumabalik
+    // lang siya sa paghahanap at gumagawa ng sariling disenyo. Sa isang totoong takbo,
+    // LABIMPITONG search_files bago pa makapagsulat ng isang salita. Dito nakikita ng
+    // user ang resulta at kayang baguhin, kaya hindi ito nakakagulat.
     const ps = await F.listProjects();
+    const namarkahan = [];
+    for (const id of Object.keys(ps)) {
+      if (ps[id].files?.length && !ps[id].files.some((f) => f.role)) {
+        const r = await F.autoMark(id);
+        for (const b of r.binago || []) namarkahan.push(`${ps[id].name}: ${b.role === 'prompt' ? '📌' : '🎨'} ${b.name}`);
+      }
+    }
+    if (namarkahan.length) Object.assign(ps, await F.listProjects());
     const attached = sess ? (await F.projectForSession(sess.id))?.id : null;
     const ids = Object.keys(ps);
     head.textContent = `📁 Projects (${ids.length})`;
@@ -1155,6 +1168,13 @@ $('proj').onclick = async () => {
       row.append(nm, n, use, open, del);
       body.append(row);
       if (openId === id) body.append(detailPanel(p, F, paint));
+    }
+
+    if (namarkahan.length) {
+      const tala = document.createElement('div');
+      tala.className = 'dim';
+      tala.textContent = 'Kusang minarkahan (pwede mong palitan) — ' + namarkahan.join(' · ');
+      body.append(tala);
     }
 
     const add = document.createElement('button');
@@ -1712,7 +1732,23 @@ function renderDocCard(sess, m) {
     { ext: 'md', label: 'Markdown', mime: 'text/markdown', make: (doc) => doc.md },
     { ext: 'html', label: 'HTML', mime: 'text/html',
       make: (doc) => `<!doctype html><meta charset="utf-8"><title>${doc.title}</title>` + doc.html },
+    // ANG IPAPASTE SA SHOPIFY. Ang laman ng blog ay FRAGMENT, hindi buong dokumento:
+    // ang doctype, meta at title ay hindi doon inilalagay. At ang pagsulat kada seksyon
+    // ay nagbubukas ng sariling balot sa bawat tawag — limang magkakapatid na
+    // <div class="hq-article"> sa isang totoong artikulo. Pinagsasama sila dito.
+    { ext: 'shopify.html', label: 'Shopify (code view)', mime: 'text/html',
+      make: (doc) => forShopify(doc.html) },
   ];
+
+  // Isang wrapper lang, walang doctype. Ang unang bukas at ang huling sara ang
+  // pinapanatili; ang mga hati sa gitna ay tinatanggal.
+  const forShopify = (html) =>
+    String(html || '')
+      .replace(/^\s*<!doctype[^>]*>/i, '')
+      .replace(/<\/?(html|head|body)[^>]*>/gi, '')
+      .replace(/<meta[^>]*>|<title>[\s\S]*?<\/title>/gi, '')
+      .replace(/<\/div>\s*<\/div>\s*<div class="hq-article">\s*<div class="hq-wrap">/gi, '')
+      .trim();
 
   // Isang beses lang binubuo ang laman para sa lahat ng format — hindi kada pindot.
   //
@@ -1756,6 +1792,46 @@ function renderDocCard(sess, m) {
 <div class="sheet"><h1>${doc.title}</h1>
 <div class="meta">${doc.words} salita · ${doc.sections.length} seksyon · Ctrl+P para i-print o gawing PDF</div>
 ${html}</div>`;
+
+  // --- ANG CHECKLIST, PINATATAKBO BILANG CODE ---
+  // Ang Part 13 ay apatnapung aytem. Mga dalawampu't pito ang masusukat nang tiyak,
+  // walang model call at walang pagkakaiba sa bawat takbo. Sa tatlong setting ng
+  // pag-iisip na sinukat ko sa parehong gawain, LAHAT ay pumalya sa parehong tatlo:
+  // walang table, walang id sa h2, at maling hugis ng presyo. Hindi ito naaayos ng
+  // mas malakas na modelo — code lang ang hindi nakakalimot.
+  if (m.design) {
+    const suri = document.createElement('div');
+    suri.className = 'docbody';
+    box.append(suri);
+    (async () => {
+      const { lintArticle, lintPrompt } = await import('./lint.js');
+      const mga = lintArticle(await docAsHtml(sid), { words: m.words });
+      const bagsak = mga.filter((r) => !r.ok);
+      const ulo = document.createElement('b');
+      ulo.textContent = bagsak.length
+        ? `⚠ ${bagsak.length} sa ${mga.length} ang bumagsak sa checklist`
+        : `✓ Pasado lahat ng ${mga.length} na tseke`;
+      suri.append(ulo);
+      const listahan = document.createElement('div');
+      listahan.className = 'docoutline';
+      for (const r of mga) {
+        const linya = document.createElement('div');
+        linya.textContent = (r.ok ? '✓ ' : '✗ ') + r.label + (r.detail ? ' — ' + r.detail : '');
+        linya.style.color = r.ok ? 'var(--dim)' : 'var(--bad, #c0392b)';
+        listahan.append(linya);
+      }
+      suri.append(listahan);
+      if (bagsak.length) {
+        const ayos = document.createElement('button');
+        ayos.textContent = '✉ Ipaayos ang bumagsak';
+        ayos.onclick = () => {
+          $('ask').value = lintPrompt(mga);
+          submit(false);
+        };
+        suri.append(ayos);
+      }
+    })().catch(() => {});
+  }
 
   const files = document.createElement('div');
   files.className = 'docfiles';
@@ -1809,13 +1885,12 @@ ${html}</div>`;
   // 2,000-salitang artikulo bago i-download. Ctrl+P doon = PDF na naka-print layout.
   const full = document.createElement('button');
   full.textContent = '⛶ Buksan nang buo';
-  full.onclick = async () => {
-    const doc = await docGet(sid);
-    const url = URL.createObjectURL(
-      new Blob([fullPage(doc, await docAsHtml(sid))], { type: 'text/html' })
-    );
-    chrome.tabs.create({ url });
-    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  // Isang tunay na pahina ng extension, hindi blob. Ang blob ay namamatay kapag
+  // nire-revoke (nakita sa paggamit bilang "ERR_FILE_NOT_FOUND"), kapag isinara ang
+  // panel, at kapag ibinalik ng Chrome ang tab pagkatapos mag-restart. Ang pahinang
+  // ito ay bumabasa mula sa storage, kaya nabubuhay hangga't nandiyan ang dokumento.
+  full.onclick = () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('view.html') + '?s=' + encodeURIComponent(sid) });
   };
 
   const all = document.createElement('button');
