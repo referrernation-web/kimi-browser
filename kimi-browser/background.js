@@ -42,6 +42,14 @@ bagong \`done\` para umusad ang check marks. Kapag dalawang beses nabigo ang par
 hakbang, huwag ipagpilitan — i-update ang plano na may bagong ruta bago magpatuloy.
 Sa gawaing isa o dalawang hakbang lang, huwag nang magplano — kumilos agad.
 
+TIPID SA KONTEKSTO — mahalaga ito, basahin mong mabuti: ang bawat bagay na pumapasok sa
+usapan ay binabayaran MULI sa bawat kasunod mong hakbang. Kaya ang isang buong page dump
+sa maagang hakbang ay 20 beses na binabayaran sa mahabang gawain. Dahil dito:
+- Kapag ang kailangan mo ay MGA ITEM ng listahan (listing, produkto, resulta, job post),
+  gamitin ang \`extract\`, HINDI ang read_page. 20-30x na mas maliit ito at sapat na.
+- Ang read_page ay para sa pag-alam ng estruktura ng page at ng mga [ref_N] na
+  papindutin o susulatan — hindi para sa pangongolekta ng datos.
+
 Paraan ng pagtatrabaho:
 - Tumawag ng read_page BAGO ang unang click o type. Pagkatapos niyan, basahin mo MULI
   lang ang page kapag NAGBAGO ito nang makabuluhan: bagong URL, bagong listing, o
@@ -917,7 +925,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     run = { id: msg.runId, sessionId: msg.sessionId };
 
-    const { apiKey, baseUrl, model, strongModel, mode, autopilot, teach, mcpServers,
+    const { apiKey, baseUrl, provider, model, strongModel, mode, autopilot, teach, mcpServers,
             audit, auditProvider, auditUrl, auditKey, auditModel } = await getSettings();
     const runStartAt = Date.now(); // para sa usage tracking
     let routedModel = model; // deklarado agad para ligtas sa finally
@@ -970,7 +978,22 @@ chrome.runtime.onConnect.addListener((port) => {
     const system =
       `Ang model na tumatakbo ngayon: ${model}. Kapag tinanong kung sino ka, ito ang sabihin mo — huwag magpanggap na ibang model.\n\n` +
       SYSTEM + modeNote + wpNote + flowNote + (await promptFor(await currentDomain()));
-    messages = [{ role: 'system', content: system }, ...(msg.history || [])];
+
+    // EXPLICIT CACHE: ang system prompt ay pareho sa BAWAT hakbang, kaya perpekto
+    // itong i-cache. Sa Alibaba (Token Plan/DashScope), ang `cache_control` ay
+    // nagbibigay ng 10% na presyo sa cache hit — kalahati ng automatic na 20%, at
+    // garantisado (hindi tinitiyak ng implicit cache na tatama). Sa ibang provider,
+    // plain string lang — hindi lahat ay tumatanggap ng content blocks.
+    const cacheable = provider === 'tokenplan' || provider === 'dashscope';
+    messages = [
+      {
+        role: 'system',
+        content: cacheable
+          ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+          : system,
+      },
+      ...(msg.history || []),
+    ];
     abort = new AbortController();
     const stopKeepAlive = keepAlive();
     await setOverlay(true, teach);
@@ -1333,6 +1356,9 @@ chrome.runtime.onConnect.addListener((port) => {
           send({
             type: 'usage', model: routedModel, role: 'worker', calls: 1,
             in: usage.prompt_tokens || 0, out: usage.completion_tokens || 0,
+            // Ang cached ay bahagi na ng prompt_tokens — 10-20% lang ang presyo nito.
+            // Dito natin nasusukat kung gumagana talaga ang caching.
+            cached: usage.prompt_tokens_details?.cached_tokens || 0,
           });
         }
 
@@ -1432,6 +1458,7 @@ chrome.runtime.onConnect.addListener((port) => {
             setStatus(
               ({
                 read_page: 'Binabasa ang page',
+                extract: 'Kinukuha ang listahan…',
                 screenshot: 'Tumitingin sa screen',
                 generate_image: 'Gumagawa ng larawan',
                 read_console: 'Binabasa ang console',

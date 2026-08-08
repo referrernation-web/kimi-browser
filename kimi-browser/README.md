@@ -3,6 +3,19 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.12.0 (matinding pagtitipid sa quota)
+
+- **`extract` tool** — sa mga page na may listahan (listing, produkto, job post,
+  resulta), kinukuha na lang ang MGA ITEM bilang siksik na records sa halip na ang
+  buong 9,000-karakter na page dump. **20-30x na mas maliit** — at dahil ang bawat
+  token sa usapan ay binabayaran MULI sa bawat kasunod na hakbang, ito ang
+  pinakamalaking tipid sa quota.
+- **Explicit prompt cache** — ang system prompt ay minarkahan na ng `cache_control`
+  sa Alibaba (Token Plan/DashScope): **10% na lang ng presyo** ang cache hit, kalahati
+  ng automatic na 20%, at garantisadong tumatama.
+- **⚡ Cache hit rate sa 📊** — makikita mo na kung gumagana ang tipid: berde kapag
+  ≥50% cached, dilaw 20-49%, pula kapag walang cache hit.
+
 ## Anong bago sa v0.11.0 (Connectors gallery — parang kay Claude)
 
 - **🔌 Connect sa ⋯ menu** — buong connectors view na parang kay Claude: gallery ng

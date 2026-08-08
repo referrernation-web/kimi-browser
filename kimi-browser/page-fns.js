@@ -53,6 +53,77 @@ export function readPage(maxChars) {
   };
 }
 
+// --- EXTRACT: ang pinakamalaking pagtitipid sa konteksto ---
+// Ang read_page ay naglalagay ng ~9,000 karakter sa usapan, at ang bawat token doon
+// ay binabayaran MULI sa bawat susunod na hakbang. Sa mga page na may listahan
+// (listing, produkto, job post, resulta), ang kailangan lang naman ay ang mga item.
+// Hinahanap nito ang paulit-ulit na estruktura sa page at ibinabalik bilang siksik
+// na records — kadalasang 20-30x na mas maliit kaysa sa buong page dump.
+export function extractPage(query, limit) {
+  const max = Math.min(Math.max(Math.round(limit || 20), 1), 60);
+  const words = String(query || '').toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+
+  // Ang "hugis" ng isang item — kung magkatulad ang hugis ng magkakapatid,
+  // malamang isa itong listahan (cards, rows, search results).
+  const shape = (el) => el.tagName + '>' + [...el.children].map((c) => c.tagName).join(',');
+
+  let best = null;
+  for (const parent of document.querySelectorAll('ul,ol,tbody,div,section,main,form')) {
+    const kids = [...parent.children].filter((k) => {
+      const r = k.getBoundingClientRect();
+      return r.height > 24 && r.width > 40;
+    });
+    if (kids.length < 3) continue;
+    const s = shape(kids[0]);
+    const same = kids.filter((k) => shape(k) === s);
+    if (same.length < 3) continue;
+    // Ang pinakamahalagang listahan ay ang pinakamarami at pinakamalaman.
+    const score = same.length * Math.min(clean(same[0].innerText).length, 400);
+    if (!best || score > best.score) best = { score, items: same };
+  }
+
+  let rows = (best?.items || [])
+    .map((el) => {
+      const a = el.querySelector('a[href]') || (el.tagName === 'A' ? el : null);
+      const r = { teksto: clean(el.innerText).slice(0, 220) };
+      if (a?.href && !a.href.startsWith('javascript:')) r.link = a.href;
+      return r;
+    })
+    .filter((r) => r.teksto.length > 8);
+
+  if (words.length) {
+    const hits = rows.filter((r) => words.some((w) => r.teksto.toLowerCase().includes(w)));
+    if (hits.length) rows = hits; // huwag magbalik ng wala kung walang tugma — ibalik lahat
+  }
+  rows = rows.slice(0, max);
+
+  if (rows.length) {
+    return {
+      url: location.href,
+      uri: 'listahan',
+      bilang: rows.length,
+      mga_item: rows,
+      tala: 'Mga item lang ito ng pangunahing listahan sa page. Kung kulang, gamitin ang read_page.',
+    };
+  }
+
+  // Walang listahan — ibalik ang mga talatang tumutugma sa hinahanap, hindi ang buong page.
+  const blocks = clean(document.body?.innerText || '')
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(clean)
+    .filter((b) => b.length > 30);
+  const picked = (words.length ? blocks.filter((b) => words.some((w) => b.toLowerCase().includes(w))) : blocks)
+    .slice(0, 25)
+    .join('\n');
+  return {
+    url: location.href,
+    uri: 'teksto',
+    teksto: picked.slice(0, 2500),
+    tala: picked ? 'Mga bahaging tumutugma lang.' : 'Walang tugma — subukan ang ibang salita o ang read_page.',
+  };
+}
+
 export function clickRef(ref) {
   const el = window.__kimiRefs?.get(ref);
   if (!el) return { error: `Walang ${ref}. Tumawag muli ng read_page — nagbago ang page.` };

@@ -220,6 +220,14 @@
       .usagebox .role.w { background: color-mix(in srgb, var(--accent) 15%, var(--bg)); color: var(--accent); }
       .usagebox .role.a { background: color-mix(in srgb, var(--ask) 15%, var(--bg)); color: var(--ask); }
       .usagebox .nums { font: 10.5px/1.5 ui-monospace, monospace; color: var(--dim); font-variant-numeric: tabular-nums; }
+      /* Cache hit rate — ang sukatan kung gumagana ba ang pagtitipid */
+      .usagebox .cacheline {
+        font: 600 11.5px/1.5 ui-monospace, monospace; border-radius: 7px; padding: 6px 10px;
+      }
+      .usagebox .cacheline.good { background: color-mix(in srgb, var(--ask) 14%, var(--bg)); color: var(--ask); }
+      .usagebox .cacheline.mid { background: color-mix(in srgb, var(--warn) 14%, var(--bg)); color: var(--warn); }
+      .usagebox .cacheline.bad { background: color-mix(in srgb, var(--err) 12%, var(--bg)); color: var(--err); }
+
       /* Ang boto ng second brain kada model — berde/dilaw/pula sa isang sulyap */
       .usagebox .score { font: 700 10px/1.5 ui-monospace, monospace; border-radius: 4px; padding: 0 5px; flex: none; }
       .usagebox .score.good { background: color-mix(in srgb, var(--ask) 16%, var(--bg)); color: var(--ask); }

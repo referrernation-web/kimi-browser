@@ -1,4 +1,4 @@
-import { readPage, clickRef, typeRef, scrollPage, overlay, listenPage, readWhisperTab,
+import { readPage, extractPage, clickRef, typeRef, scrollPage, overlay, listenPage, readWhisperTab,
          hookConsole, readConsole, pasteLarge, recorderStart, recorderStop, applyStep, pageSig } from './page-fns.js';
 import { remember } from './memory.js';
 
@@ -163,6 +163,25 @@ export const SCHEMA = [
       description:
         'Basahin ang working tab: URL, title, ang teksto nito, at listahan ng mga [ref_N] na pwedeng pindutin o sulatan. Tawagin ito BAGO mag-click o mag-type, at ULIT pagkatapos ng anumang nagpabago ng page.',
       parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'extract',
+      description:
+        'Kunin ang MGA ITEM ng listahan sa page — listing, produkto, resulta ng paghahanap, job post, kandidato. ITO ANG UNAHIN, HINDI ang read_page, kapag nangongolekta ka ng maraming magkakatulad na bagay: 20-30x na mas maliit ang ibinabalik nito kaysa sa buong page, kaya mas mabilis at mas mura ang bawat kasunod mong hakbang. Ang `query` ay pansala lang — iwanang blangko para makuha ang buong listahan. Kapag walang listahan sa page, ibinabalik nito ang mga talatang tumutugma sa query.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Mga salitang dapat naglalaman ang item (opsyonal). Hal. "DDR5 32GB".',
+          },
+          limit: { type: 'number', description: 'Ilang item ang ibabalik. Default 20, hanggang 60.' },
+        },
+        required: [],
+      },
     },
   },
   {
@@ -541,6 +560,8 @@ export async function runTool(name, args) {
       // 9,000 karakter ang badyet — ~25% mas kaunting input tokens kada basa,
       // mas mabilis magsimula ang bawat tawag. Sapat pa rin para sa karamihan ng page.
       return inPage(readPage, [9000]);
+    case 'extract':
+      return inPage(extractPage, [args.query, args.limit]);
     case 'read_console': {
       // I-hook muna sa MAIN world (doon nabubuhay ang console ng page), tapos basahin.
       // Idempotent ang hook — walang masasira kahit paulit-ulit ang tawag.

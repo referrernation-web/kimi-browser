@@ -961,6 +961,7 @@ const SAYS = {
   list_tabs: () => 'Tinitingnan ang mga tab sa group',
   switch_tab: () => 'Lumilipat ng working tab',
   read_console: () => 'Binabasa ang console ng page',
+  extract: (a) => `Kinukuha ang listahan${a.query ? `: "${String(a.query).slice(0, 30)}"` : ''}`,
   paste_large: (a) => `Nagpa-paste ng ${String(a.text || '').length} karakter`,
   run_shortcut: (a) => `Pinapatakbo ang shortcut na "${a.name}"`,
   schedule_task: () => 'Nag-iiskedyul ng gawain',
@@ -1414,12 +1415,13 @@ function stopClock() {
 async function trackUsage(m) {
   if (!m.model) return;
   const { usage = {} } = await chrome.storage.local.get('usage');
-  const u = (usage[m.model] ||= { calls: 0, runs: 0, seconds: 0, tin: 0, tout: 0, role: '', scoreSum: 0, scoreN: 0 });
+  const u = (usage[m.model] ||= { calls: 0, runs: 0, seconds: 0, tin: 0, tout: 0, tcached: 0, role: '', scoreSum: 0, scoreN: 0 });
   u.calls += m.calls || 0;
   u.runs += m.runs || 0;
   u.seconds += m.seconds || 0;
   u.tin += m.in || 0;
   u.tout += m.out || 0;
+  u.tcached = (u.tcached || 0) + (m.cached || 0);
   // Ang boto ng second brain — dito nagiging masusukat kung aling model ang mahusay.
   if (typeof m.score === 'number') {
     u.scoreSum = (u.scoreSum || 0) + m.score;
@@ -1457,6 +1459,10 @@ $('stats').onclick = async () => {
     const tin = entries.reduce((n, [, u]) => n + u.tin, 0);
     const tout = entries.reduce((n, [, u]) => n + u.tout, 0);
     const runs = entries.reduce((n, [, u]) => n + u.runs, 0);
+    // Ang CACHE HIT RATE — dito mo makikita kung gumagana ang tipid. Ang cached na
+    // tokens ay 10-20% lang ng presyo, kaya mas mataas = mas malaki ang natitipid.
+    const tcached = entries.reduce((n, [, u]) => n + (u.tcached || 0), 0);
+    const hit = tin ? Math.round((tcached / tin) * 100) : 0;
     const totals = document.createElement('div');
     totals.className = 'totals';
     for (const [n, l] of [[fmtTok(tin), 'Input tokens'], [fmtTok(tout), 'Output tokens'], [String(runs), 'Mga takbo']]) {
@@ -1472,6 +1478,15 @@ $('stats').onclick = async () => {
       totals.append(s);
     }
     box.append(totals);
+
+    // Isang linyang buod ng caching — malinaw kung nakakatipid ba o hindi.
+    const cache = document.createElement('div');
+    cache.className = 'cacheline ' + (hit >= 50 ? 'good' : hit >= 20 ? 'mid' : 'bad');
+    cache.textContent = tcached
+      ? `⚡ ${hit}% cached — ${fmtTok(tcached)} tokens sa 10-20% na presyo lang`
+      : '⚡ 0% cached — walang naitatalang cache hit (tingnan kung sinusuportahan ito ng provider mo)';
+    cache.title = 'Ang cached na input ay 10-20% lang ng normal na presyo. Mas mataas, mas malaki ang tipid.';
+    box.append(cache);
 
     const max = Math.max(...entries.map(([, u]) => u.tin + u.tout), 1);
     for (const [model, u] of entries) {
