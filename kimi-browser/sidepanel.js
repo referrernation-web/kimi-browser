@@ -1161,26 +1161,51 @@ const toCSV = (t) =>
     .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
 
-// Iisang daan ang lahat ng download — dito nakatira ang dalawang bagay na madaling
-// makalimutan: idikit muna ang anchor sa dokumento, at HUWAG agad i-revoke ang blob
-// (nauunahan nito ang download, lalo na kapag malaki ang laman).
+// Iisang daan ang lahat ng download. Sa side panel ng extension ay HINDI maaasahan
+// ang `<a download>` — tahimik lang itong walang ginagawa. Ang chrome.downloads API
+// ang tamang paraan dito (kaya nasa manifest ang "downloads" permission). Nananatili
+// ang anchor bilang huling dulot, at ibinabalik nito ang mali kung parehong nabigo,
+// para hindi na tahimik ang pagkabigo.
 function saveBlob(text, filename, type) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.append(a);
-  a.click();
-  setTimeout(() => {
-    URL.revokeObjectURL(url);
-    a.remove();
-  }, 60000);
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const cleanup = () => setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+    const viaAnchor = () => {
+      try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.append(a);
+        a.click();
+        setTimeout(() => a.remove(), 1000);
+        cleanup();
+        resolve(null); // hindi natin tiyak, pero may nasubukan
+      } catch (e) {
+        cleanup();
+        resolve(e.message || 'hindi ma-download');
+      }
+    };
+
+    if (!chrome.downloads?.download) return viaAnchor();
+    chrome.downloads.download({ url, filename, saveAs: false }, (id) => {
+      if (chrome.runtime.lastError || id === undefined) {
+        // Baka hindi pa na-reload ang extension matapos madagdag ang permission.
+        return viaAnchor();
+      }
+      cleanup();
+      resolve(null);
+    });
+  });
 }
 
-function download(t) {
+async function download(t) {
   const base = t.title.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50);
-  saveBlob('﻿' + toCSV(t), (base || 'talahanayan') + '.csv', 'text/csv');
+  const name = (base || 'talahanayan') + '.csv';
+  const err = await saveBlob('﻿' + toCSV(t), name, 'text/csv');
+  const s = active();
+  if (s) emit(s, err ? { t: 'error', text: `Hindi na-download ang ${name}: ${err}` } : { t: 'tool', text: `⤓ Na-download: ${name}` });
 }
 
 async function copyTable(t, btn) {
@@ -1852,7 +1877,7 @@ function startAmbientMic() {
 $('mic').onclick = toggleMic;
 
 // --- EXPORT: i-download ang usapan bilang Markdown ---
-$('export').onclick = () => {
+$('export').onclick = async () => {
   $('menu').style.display = 'none';
   const s = active();
   // Dating tahimik itong bumabalik — mukhang sirang buton kung wala ka lang laman.
@@ -1892,8 +1917,13 @@ $('export').onclick = () => {
   const base = s.title.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50);
   const name = (base || 'kimi-usapan') + '.md';
   const body = lines.join('\n');
-  saveBlob(body, name, 'text/markdown');
-  emit(s, { t: 'tool', text: `⤓ Na-export: ${name} (${Math.round(body.length / 1024)} KB) — nasa Downloads mo` });
+  const err = await saveBlob(body, name, 'text/markdown');
+  emit(
+    s,
+    err
+      ? { t: 'error', text: `Hindi na-export ang ${name}: ${err}. Kung kalilipat mo lang ng bersyon, i-remove muna ang extension sa chrome://extensions tapos Load unpacked ulit — kailangan nito ng bagong permission.` }
+      : { t: 'tool', text: `⤓ Na-export: ${name} (${Math.round(body.length / 1024)} KB) — nasa Downloads mo` }
+  );
 };
 
 // --- TUNOG NG TAB → Groq Whisper ---

@@ -3,6 +3,18 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.12.3 (tunay nang naaayos ang download)
+
+> ⚠️ **Kailangan ng buong reload, hindi lang 🔄** — may bagong `downloads` permission
+> ang manifest. Sa `chrome://extensions`, i-**Remove** muna ang Kimi Browser tapos
+> **Load unpacked** ulit. Hindi kumakagat ang bagong permission sa refresh lang.
+
+- **Ginagamit na ang `chrome.downloads` API** — sa side panel ng extension ay hindi
+  maaasahan ang karaniwang download link (tahimik lang itong walang ginagawa). Ito ang
+  tunay na dahilan kung bakit walang nangyayari sa ⤓ Export.
+- Nananatili ang lumang paraan bilang huling dulot, at kapag parehong nabigo, **may
+  lumalabas nang error sa chat** na may sanhi — hindi na tahimik.
+
 ## Anong bago sa v0.12.2 (naayos ang ⤓ Export)
 
 - **Naayos ang Export na hindi gumagana kapag malaki na ang usapan** — agad na
