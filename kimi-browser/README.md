@@ -3,6 +3,23 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.14.1 (mabilis at malakas na sa RankMath)
+
+Dati, ang pagpapataas ng RankMath score ay eksplorasyon mula sa wala: binabasa niya
+ang panel, hinuhulaan kung ano ang nagpapataas, at paulit-ulit na chine-check ang
+score. Ngayon, may built-in na RankMath playbook na siya kapag nasa wp-admin:
+
+- Alam na niya ang daloy: isang basa ng mga FAILING check lang, lahat ng ayos sa isang
+  pass, at isang beses lang ang pag-verify ng score sa dulo.
+- Alam na niya ang mga tunay na nagpapataas ayon sa bigat: focus keyword sa simula ng
+  SEO title, sa URL, sa meta description, at sa unang 10% ng content; tamang haba ng
+  title (≤60) at description (120-160) sa Edit Snippet; keyword sa subheading at alt
+  text; panloob at panlabas na link; maikling talata.
+- Alam na rin niya ang mga bitag: lumang score badge sa Posts list, at kung kailan mas
+  tama ang manatili sa 90+ kaysa pilitin ang 100 sa pamamagitan ng keyword stuffing.
+- Dagdag na disiplina sa bilis sa wp-admin: walang screenshot maliban kung biswal ang
+  tanong, at walang read_page pagkatapos ng bawat type sa parehong form.
+
 ## Anong bago sa v0.14.0 (one-click Gmail at Sheets, tulad ng sa Claude)
 
 Sa **⋯ → 🔌 Connect**, may card na ngayon ang **Gmail + Sheets** na may Connect button.

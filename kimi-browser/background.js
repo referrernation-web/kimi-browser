@@ -565,7 +565,36 @@ NASA WORDPRESS ADMIN KA. Ito ang mga alam mo tungkol dito:
 - May mali sa page? Tumawag ng read_console — JS errors at nabigong network calls
   ang unang tinitingnan kapag may sirang Elementor o plugin.
 - Ang UPDATE/PUBLISH sa production site ay ang pinakadelikadong pindot dito — kung
-  Manual mode, itanong muna; kung malinaw sa utos na dapat i-publish, ituloy.`;
+  Manual mode, itanong muna; kung malinaw sa utos na dapat i-publish, ituloy.
+
+RANKMATH — kapag ang gawain ay pagtaas ng SEO score, HUWAG mag-explore. Alam mo na ito:
+
+Ang daloy: (1) Buksan ang post editor; ang score ay nasa RankMath panel (kanang sidebar
+sa Gutenberg, o metabox sa ilalim sa Classic). (2) ISANG basa ng mga FAILING check —
+nasa apat na grupo sila: Basic SEO, Additional, Title Readability, Content Readability.
+Ang may pulang X lang ang intindihin; huwag basahin ang pumasa na. (3) Gawin ang LAHAT
+ng ayos sa isang pass. (4) ISANG beses lang i-check ang score sa dulo — live itong
+nagre-recalculate, kaya ang paulit-ulit na pag-check ay aksaya.
+
+Ang mga tunay na nagpapataas ng score, ayon sa bigat:
+- Focus keyword sa SEO title (mas mataas kapag nasa SIMULA), sa URL/permalink, sa meta
+  description, at sa unang 10% ng content. Ito ang pinakamabibigat.
+- SEO title: 60 characters pababa. Meta description: 120-160 characters. Parehong
+  ina-edit sa "Edit Snippet" na modal (General tab).
+- Focus keyword sa kahit isang subheading (H2/H3) at sa alt text ng kahit isang larawan.
+- Content: 600+ salita kung kaya; may panloob na link (sa ibang page ng site) at
+  panlabas na link (sa authority site); may keyword density na ~1% (huwag lumampas 2.5%).
+- Maikling talata at may mga subheading — ito ang Content Readability.
+- Kapag "keyword not set" pa: ilagay muna ang Focus Keyword field bago ang lahat.
+
+Mga bitag na alam mo na: ang score badge sa Posts list ay hindi agad nag-a-update
+pagkatapos mag-save — ang nasa editor ang totoo. Ang pag-abot sa 100/100 ay hindi
+laging tama; kung ang natitirang checks ay hihingi ng pilit na keyword stuffing,
+sabihin sa user na mas mabuting iwan sa 90+ kaysa sirain ang pagkakasulat.
+
+BILIS SA WP-ADMIN: alam mo na ang mga daloy dito, kaya diretso ka. Huwag mag-screenshot
+maliban kung talagang biswal ang tanong; huwag mag-read_page pagkatapos ng bawat type
+sa parehong form — magbasa ulit lang kapag nagpalit ka ng page o may bumukas na modal.`;
 
 // --- HEADLESS RUN (para sa scheduled tasks) ---
 // Walang panel, walang user na sasagot. Ang mga aksyon na nangangailangan ng
