@@ -303,7 +303,7 @@ export function overlay(action, arg) {
         @keyframes capin { from { opacity:0; transform:translateY(6px); } }
       </style>
       <div class="frame"></div>
-      <div class="bar"><span class="dot"></span><b>Kimi K3</b><span class="st"></span><span class="tm"></span></div>
+      <div class="bar"><span class="dot"></span><b>Dianna</b><span class="st"></span><span class="tm"></span></div>
       <div class="cur"></div>
       <div class="ring"></div>
       <div class="spark" style="left:12%"></div>

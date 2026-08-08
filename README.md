@@ -1,4 +1,4 @@
-# Kimi Browser — Chrome Extension
+# Dianna.ai — Chrome Extension
 
 ## Paano i-install sa laptop mo (5 minutos lang)
 
@@ -25,8 +25,8 @@ Hindi mo kailangan ng kahit anong technical knowledge. Sundan lang:
 6. Click **Select Folder**
 
 ### Step 4 — Tapos na!
-- Lalabas ang **Kimi Browser** sa listahan ng extensions mo
-- Para madaling ma-access, click ang puzzle icon 🧩 sa toolbar ng Chrome, tapos i-**pin** ang Kimi Browser
+- Lalabas ang **Dianna.ai** sa listahan ng extensions mo
+- Para madaling ma-access, click ang puzzle icon 🧩 sa toolbar ng Chrome, tapos i-**pin** ang Dianna.ai
 
 ---
 

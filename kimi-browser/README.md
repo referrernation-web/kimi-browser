@@ -1,12 +1,25 @@
-# Kimi K3 Browser
+# Dianna.ai
 
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
-## Anong bago sa v0.12.3 (tunay nang naaayos ang download)
+## Anong bago sa v0.13.0 (Dianna.ai na ang pangalan)
+
+- **Bagong pangalan: Dianna.ai** — palit na ang extension name, ang logo, ang banner
+  sa page, ang mga notification, at ang pangalan ng purple tab group. Ang "Kimi" na
+  natitira ay ang PROVIDER lamang (api.kimi.com), na hiwalay sa pangalan ng produkto.
+- **Malinis nang binabasa ng boses ang sagot** — nililinis na ang markdown bago ipabasa
+  sa TTS: ang mga asterisk, pamagat, at bullet ay tinatanggal, ang em dash ay nagiging
+  kuwit, at ang bawat linya ay tinatapos ng tuldok para may tamang hinto ang pagbasa.
+  Bawal na rin ang em dash sa sagot mismo (may tuntunin na sa system prompt).
+- **Hindi na pumapalya ang ⤓ Export** — bukod sa `chrome.downloads`, may dalawang
+  paraan nang laging gumagana kapag tumanggi ang Chrome: **📋 Kopyahin ang buong laman**
+  at **🔗 Buksan sa bagong tab** (Ctrl+S doon). Pareho sa CSV ng mga talahanayan.
+
+## Anong bago sa v0.12.3
 
 > ⚠️ **Kailangan ng buong reload, hindi lang 🔄** — may bagong `downloads` permission
-> ang manifest. Sa `chrome://extensions`, i-**Remove** muna ang Kimi Browser tapos
+> ang manifest. Sa `chrome://extensions`, i-**Remove** muna ang extension tapos
 > **Load unpacked** ulit. Hindi kumakagat ang bagong permission sa refresh lang.
 
 - **Ginagamit na ang `chrome.downloads` API** — sa side panel ng extension ay hindi

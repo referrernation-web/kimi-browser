@@ -1,4 +1,5 @@
 import { repairHistory } from './history.js';
+import { forSpeech } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
 const log = $('log');
@@ -732,7 +733,7 @@ function speak(text, then) {
     return;
   }
   ttsStop();
-  const clean = text.replace(/[*#`_]/g, '').slice(0, 1200);
+  const clean = forSpeech(text).slice(0, 1200);
   if (ttsEngine === 'cartesia') speakCartesia(clean, then);
   else speakBrowser(clean, then);
 }
@@ -1202,10 +1203,7 @@ function saveBlob(text, filename, type) {
 
 async function download(t) {
   const base = t.title.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50);
-  const name = (base || 'talahanayan') + '.csv';
-  const err = await saveBlob('﻿' + toCSV(t), name, 'text/csv');
-  const s = active();
-  if (s) emit(s, err ? { t: 'error', text: `Hindi na-download ang ${name}: ${err}` } : { t: 'tool', text: `⤓ Na-download: ${name}` });
+  await offerFile('﻿' + toCSV(t), (base || 'talahanayan') + '.csv', 'text/csv');
 }
 
 async function copyTable(t, btn) {
@@ -1888,7 +1886,7 @@ $('export').onclick = async () => {
   const lines = [`# ${s.title}`, '', `_${new Date(s.createdAt).toLocaleString()}_`, ''];
   for (const e of s.transcript) {
     if (e.t === 'user') lines.push('## Ikaw', '', e.text, '');
-    else if (e.t === 'assistant') lines.push('## Kimi K3', '', e.text, '');
+    else if (e.t === 'assistant') lines.push('## Dianna', '', e.text, '');
     else if (e.t === 'tool') lines.push(`> ${e.text}`, '');
     else if (e.t === 'error') lines.push(`> ⚠ ${e.text}`, '');
     else if (e.t === 'audit') lines.push(`## 🧐 Second brain (${e.model || 'auditor'})`, '', e.text, '');
@@ -1917,14 +1915,60 @@ $('export').onclick = async () => {
   const base = s.title.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50);
   const name = (base || 'kimi-usapan') + '.md';
   const body = lines.join('\n');
-  const err = await saveBlob(body, name, 'text/markdown');
-  emit(
-    s,
-    err
-      ? { t: 'error', text: `Hindi na-export ang ${name}: ${err}. Kung kalilipat mo lang ng bersyon, i-remove muna ang extension sa chrome://extensions tapos Load unpacked ulit — kailangan nito ng bagong permission.` }
-      : { t: 'tool', text: `⤓ Na-export: ${name} (${Math.round(body.length / 1024)} KB) — nasa Downloads mo` }
-  );
+  await offerFile(body, name, 'text/markdown');
 };
+
+// --- ANG LABASAN NG FILE: tatlong daan, para hindi na ito pumalya kailanman ---
+// Ang download ay maaaring tanggihan ng Chrome sa loob ng side panel, kaya hindi tayo
+// umaasa dito nang mag-isa. Laging may dalawang paraan na TIYAK na gumagana: kopyahin
+// sa clipboard, at buksan sa bagong tab (doon ay Ctrl+S ka na lang).
+async function offerFile(body, name, type) {
+  const s = active();
+  if (!s) return;
+  const kb = Math.round(body.length / 1024);
+  const err = await saveBlob(body, name, type);
+
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  const b = document.createElement('b');
+  b.textContent = err
+    ? `⚠ Hindi tinanggap ng Chrome ang download ng ${name}`
+    : `⤓ ${name} (${kb} KB) — tingnan sa Downloads mo`;
+  const note = document.createElement('div');
+  note.className = 'dim';
+  note.textContent = err
+    ? `Dahilan: ${err}. Gamitin ang alinman sa dalawang buton sa ibaba — tiyak na gumagana ang mga ito.`
+    : 'Kung wala sa Downloads, gamitin ang dalawang buton sa ibaba.';
+
+  const row = document.createElement('div');
+  row.className = 'opts';
+
+  const copy = document.createElement('button');
+  copy.textContent = '📋 Kopyahin ang buong laman';
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(body);
+      copy.textContent = '✓ Nakopya na — i-paste mo kahit saan';
+    } catch {
+      copy.textContent = '✗ Hindi makopya';
+    }
+  };
+
+  const open = document.createElement('button');
+  open.textContent = '🔗 Buksan sa bagong tab';
+  open.onclick = () => {
+    // Bilang plain text ito binubuksan para makita agad; Ctrl+S para i-save.
+    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
+    chrome.tabs.create({ url });
+    open.textContent = '✓ Nasa bagong tab — Ctrl+S para i-save';
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
+  };
+
+  row.append(copy, open);
+  box.append(b, note, row);
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+}
 
 // --- TUNOG NG TAB → Groq Whisper ---
 $('tap').onclick = async () => {

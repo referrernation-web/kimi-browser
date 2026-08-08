@@ -25,12 +25,12 @@ const AUTOFIX_BELOW = 4;
 // Neutral ang identity — ang totoong model name ay idinadagdag sa build ng system
 // prompt, para kapag Qwen o ibang model ang worker, hindi siya magpapanggap na Kimi.
 const SYSTEM = `Ikaw ay isang AI browser agent na nakaupo sa totoong Chrome ng user,
-tumatakbo sa loob ng Kimi K3 Browser extension.
+tumatakbo sa loob ng Dianna.ai na browser extension.
 
 Mahalaga: nakikita mo ang mga naka-login na session ng user. Tratuhin mo ang bawat page
 bilang tunay at buhay — ang mga pindot mo ay may totoong bunga.
 
-MAY SARILI KANG SCOPE. Kontrolado mo LANG ang purple na tab group na "K3". Ang ibang
+MAY SARILI KANG SCOPE. Kontrolado mo LANG ang purple na tab group na "Dianna". Ang ibang
 tabs ng user ay hindi mo makikita, malilipat, o masasara — kahit subukan mo, hahadlangan
 ka ng Chrome mismo. Kapag kailangan mo ng bagong tab, gumamit ng new_tab at awtomatiko
 itong papasok sa group mo.
@@ -119,6 +119,12 @@ paliwanag, opinyon, o kahit anong hindi teknikal: sumulat ng **buong pangungusap
 tuloy-tuloy**, tulad ng normal na pakikipag-usap ng tao. Walang bullet, walang gitling
 sa simula ng linya, walang naka-bold na pamagat, walang numerado — magkakaugnay na
 talata lang na malinis ang gramatika at maayos ang daloy.
+
+BAWAL ANG EM DASH (—) at en dash (–). Binabasa nang malakas ang mga sagot mo, at ang
+gitling na ito ay nagiging awkward na tigil sa gitna ng pangungusap. Gumamit ng kuwit,
+tuldok, o hatiin sa dalawang pangungusap. Siguraduhin ding may tamang bantas ang bawat
+pangungusap — tuldok sa dulo, kuwit sa tamang hinto — dahil ang bantas ang gabay ng
+boses sa tono at hininga. Ang talatang walang bantas ay binabasa nang walang tigil.
 
 Gamitin lang ang bullet, numero, o talahanayan kapag ang nilalaman MISMO ay listahan:
 paghahambing ng tatlo o higit pang bagay, sunod-sunod na hakbang na susundan ng user,
@@ -554,12 +560,12 @@ async function headlessRun(instruction) {
   const { apiKey, baseUrl, model } = await getSettings();
   if (!apiKey || !baseUrl) return;
 
-  notify('K3 · scheduled task', instruction);
+  notify('Dianna · scheduled task', instruction);
   let tab = null;
   try {
     tab = await chrome.tabs.create({ url: 'about:blank', active: false });
     const gid = await chrome.tabs.group({ tabIds: [tab.id] });
-    await chrome.tabGroups.update(gid, { title: 'K3 · scheduled', color: 'purple' });
+    await chrome.tabGroups.update(gid, { title: 'Dianna · scheduled', color: 'purple' });
     setScope(gid, tab.id);
   } catch {
     return;
@@ -628,7 +634,7 @@ async function headlessRun(instruction) {
     try {
       await chrome.action.setBadgeText({ text: '' });
     } catch {}
-    notify('K3 · tapos ang scheduled task', summary);
+    notify('Dianna · tapos ang scheduled task', summary);
   }
 }
 
@@ -740,7 +746,7 @@ async function ensureScope(sessionId, title) {
       if (!tab || /^(chrome|edge|about|chrome-extension):/.test(tab.url || '')) return;
       gid = await chrome.tabs.group({ tabIds: [tab.id] });
       await chrome.tabGroups.update(gid, {
-        title: `K3 · ${(title || 'usapan').slice(0, 20)}`,
+        title: `Dianna · ${(title || 'usapan').slice(0, 20)}`,
         color: 'purple',
       });
       groups[sessionId] = gid;
@@ -1575,7 +1581,7 @@ chrome.runtime.onConnect.addListener((port) => {
       send({ type: 'done' }); // ang kasaysayan ay naipadala na isa-isa
       // Usage tracking: ilang segundo ang buong takbo — ang tokens ay naipadala na kada tawag.
       send({ type: 'usage', model: routedModel, role: 'worker', runs: 1, seconds: Math.round((Date.now() - runStartAt) / 1000) });
-      notify('Kimi K3', 'Tapos na ang gawain — buksan ang panel para makita ang resulta.');
+      notify('Dianna', 'Tapos na ang gawain — buksan ang panel para makita ang resulta.');
       try {
         await chrome.action.setBadgeText({ text: '' }); // patayin ang ilaw
       } catch {}
