@@ -3,6 +3,14 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.12.1
+
+- **Prosa ang default na sagot, hindi listahan** — sa karaniwang tanong, usapan, o
+  paliwanag, tuloy-tuloy nang pangungusap ang isinusulat niya: walang bullet, walang
+  gitling sa simula ng linya, walang naka-bold na pamagat. Ginagamit lang ang listahan
+  kapag ang nilalaman mismo ay listahan (paghahambing, sunod-sunod na hakbang, code,
+  datos). Ang dating 4-bahaging balangkas ay saklaw na lang ng sagot, hindi format.
+
 ## Anong bago sa v0.12.0 (matinding pagtitipid sa quota)
 
 - **`extract` tool** — sa mga page na may listahan (listing, produkto, job post,
