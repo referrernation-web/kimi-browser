@@ -14,6 +14,7 @@ export const MODES = {
   adaptive: { label: 'Adaptive', hint: 'Nagtatanong sa unang beses ng bawat aksyon, tapos tiwala na sa buong gawain.' },
   manual: { label: 'Manual', hint: 'Nagtatanong bago ang bawat aksyon.' },
   auto: { label: 'Auto', hint: 'Kusang kumikilos; nagtatanong pa rin sa hindi na maibabalik.' },
+  write: { label: 'Write', hint: 'Pagsulat ng artikulo o dokumento. Kaunting tool lang para hindi maligaw.' },
   plan: { label: 'Plan', hint: 'Read-only. Nagbabasa at nagpaplano, hindi kumikilos.' },
   coach: { label: 'Coach', hint: 'Nakikinig sa caption at nagmumungkahi ng sagot. Walang ginagalaw.' },
   bypass: { label: 'Bypass', hint: 'Walang tanong kahit ano. Alam mo ang ginagawa mo.' },
@@ -85,8 +86,16 @@ function withWhy(t) {
   };
 }
 
+// WRITE MODE: ang dalawampu't apat na tool ay sobra-sobra para sa maliit na model —
+// hindi nito napipili ang write_document, kaya isinusulat ang artikulo sa chat at
+// lumolobo ang konteksto. Dito, LIMA lang ang nakikita niya, kaya hindi siya
+// maliligaw: sulat, hanapin sa dokumento, basahin ang page, at magtanong.
+const WRITE_TOOLS = new Set(['write_document', 'search_files', 'read_page', 'extract', 'ask_user', 'navigate']);
+
 export function schemaFor(mode, teach) {
-  const base = READ_ONLY.has(mode) ? SCHEMA.filter((t) => !WRITES.has(t.function.name)) : SCHEMA;
+  let base = SCHEMA;
+  if (READ_ONLY.has(mode)) base = SCHEMA.filter((t) => !WRITES.has(t.function.name));
+  else if (mode === 'write') base = SCHEMA.filter((t) => WRITE_TOOLS.has(t.function.name));
   return teach ? base.map(withWhy) : base;
 }
 

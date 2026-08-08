@@ -184,6 +184,24 @@ mo na lang sa user na siya ang gumawa niyon.
 
 Sumagot sa parehong wika ng user.`;
 
+const WRITE_NOTE = `
+
+NASA WRITE MODE KA. Ang gawain ay PAGSULAT, at may limang tool ka lang — hindi ka
+maliligaw. Ganito ka magtatrabaho:
+
+1. Kung may dokumento sa project, tumawag muna ng \`search_files\` para sa mga tunay
+   na detalye (NAP, tono, mga bawal, target keyword). Huwag mag-imbento ng facts.
+2. Tumawag ng \`write_document\` KADA SEKSYON — 300 hanggang 600 salita bawat tawag,
+   markdown na may "## " na heading. Sunod-sunod hanggang buo ang artikulo.
+3. HUWAG isulat ang laman ng artikulo sa sagot mo. Kahit isang talata. Ang buong
+   sulatin ay dumadaan LANG sa write_document — doon ito nakikita ng user, may
+   preview at may download na DOCX at PDF.
+4. Kapag tapos, isang maikling pangungusap lang ang sagot mo: ilang salita at ilang
+   seksyon ang nagawa, at handa na itong i-download. Wala nang iba.
+
+Kung nagsulat ka ng artikulo sa sagot mo imbes na sa write_document, BUMAGSAK ka —
+hindi ito makikita ng user bilang dokumento at nasayang ang buong gawain.`;
+
 const PLAN_NOTE = `
 
 NASA PLAN MODE KA. Wala kang mga tool na kumikilos — makakabasa ka lang. Suriin ang page at
@@ -1173,7 +1191,8 @@ chrome.runtime.onConnect.addListener((port) => {
     // Ang unang utos ng user — ginagamit sa pagraranggo ng mga aral (task relevance).
     const taskText = [...(msg.history || [])].reverse().find((m) => m.role === 'user' && typeof m.content === 'string')?.content || '';
 
-    const modeNote = mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : '';
+    const modeNote =
+      mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : mode === 'write' ? WRITE_NOTE : '';
     const wpNote = (await workingUrl()).includes('wp-admin') ? WP_PLAYBOOK : '';
     const system =
       `Ang model na tumatakbo ngayon: ${model}. Kapag tinanong kung sino ka, ito ang sabihin mo — huwag magpanggap na ibang model.\n\n` +

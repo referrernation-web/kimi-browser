@@ -3,6 +3,28 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.17.0 (📝 Write mode — inayos ang article generation)
+
+**Ang sira na inayos:** dalawampu't apat na tool ang meron ang agent, at sobra-sobra
+iyon para sa maliit na model tulad ng `deepseek-v4-flash`. Hindi nito napipili ang
+`write_document`, kaya isinusulat ang artikulo diretso sa chat — lumolobo ang
+konteksto (nakita namin ang 260,000 karakter) at walang lumalabas na dokumento.
+
+- **📝 Write mode** — bagong mode sa tabi ng Adaptive at Plan. Dito, **ANIM na tool
+  lang** ang nakikita niya: `write_document`, `search_files`, `read_page`, `extract`,
+  `navigate`, at `ask_user`. Hindi na siya maliligaw. May mahigpit ding tagubilin na
+  bawal isulat ang artikulo sa sagot — dumadaan lang ito sa dokumento.
+- **⤓ PDF** — bagong `pdf.js`, walang library gaya ng docx. Ngayon apat na ang
+  format sa doc card: **DOCX, PDF, PPTX, MD, HTML**.
+- **Tahimik na ang download** — hindi na nagbubukas ng bagong tab kapag nag-export
+  (nakakagulo iyon at mukhang may mali). Isang linya na lang: "nasa Downloads mo".
+  Lumalabas lang ang pamalit na paraan kapag tumanggi talaga ang Chrome.
+
+**Paano gamitin:** piliin ang 📝 Write sa mode dropdown, i-attach ang project na may
+SOP at brand guidelines mo, tapos sabihing "sumulat ka ng artikulo tungkol sa X".
+Maghahanap muna siya sa dokumento, susulat kada seksyon, at sa dulo ay may card na
+may download buttons.
+
 ## Anong bago sa v0.16.0 (📁 Projects at file upload)
 
 Kung ang knowledge hub ay ang natutunan NIYA, ang projects naman ay ang kaalamang

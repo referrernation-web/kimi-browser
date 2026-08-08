@@ -2,6 +2,7 @@ import { repairHistory } from './history.js';
 import { forSpeech } from './speech.js';
 import { googleConnect } from './google.js';
 import { parseMarkdown, blocksToHtml, makeDocx, makePptx } from './docx.js';
+import { makePdf } from './pdf.js';
 import { docGet, docAsMarkdown, docAsHtml } from './docs.js';
 
 const $ = (id) => document.getElementById(id);
@@ -325,6 +326,7 @@ const HINTS = {
   adaptive: 'Nagtatanong sa unang beses ng bawat aksyon, tapos tiwala na sa buong gawain.',
   manual: 'Nagtatanong bago ang bawat aksyon.',
   auto: 'Kusang kumikilos; nagtatanong pa rin sa hindi na maibabalik.',
+  write: 'Pagsulat ng artikulo. Limang tool lang — diretso sa dokumento, may DOCX at PDF sa dulo.',
   plan: 'Read-only. Nagbabasa at nagpaplano, hindi kumikilos.',
   coach: 'Nakikinig sa caption ng tawag at nagmumungkahi ng sagot. Walang ginagalaw.',
   bypass: 'Walang tanong kahit ano.',
@@ -1339,6 +1341,11 @@ function renderDocCard(sess, m) {
       await saveBlob(makeDocx(doc.title, blocks), safeName(doc.title) + '.docx',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     }),
+    mkBtn('⤓ .pdf', async () => {
+      const doc = await docGet(sid);
+      const blocks = parseMarkdown(doc.sections.map((s) => s.md).join('\n\n'));
+      await saveBlob(makePdf(doc.title, blocks), safeName(doc.title) + '.pdf', 'application/pdf');
+    }),
     mkBtn('⤓ .pptx', async () => {
       const doc = await docGet(sid);
       const blocks = parseMarkdown(doc.sections.map((s) => s.md).join('\n\n'));
@@ -2307,43 +2314,35 @@ async function offerFile(body, name, type) {
   const kb = Math.round(body.length / 1024);
   const err = await saveBlob(body, name, type);
 
+  // Kapag gumana ang download, isang tahimik na linya lang — hindi na nagbubukas ng
+  // bagong tab. Ang pagbukas sa ibang tab ay nakakagulo at mukhang may mali.
+  if (!err) {
+    emit(s, { t: 'tool', text: `⤓ ${name} (${kb} KB) — nasa Downloads mo` });
+    return;
+  }
+
+  // Kapag TUMANGGI ang Chrome, saka lang lumalabas ang mga pamalit na paraan.
   const box = document.createElement('div');
   box.className = 'confirm';
   const b = document.createElement('b');
-  b.textContent = err
-    ? `⚠ Hindi tinanggap ng Chrome ang download ng ${name}`
-    : `⤓ ${name} (${kb} KB) — tingnan sa Downloads mo`;
+  b.textContent = `⚠ Hindi tinanggap ng Chrome ang download ng ${name}`;
   const note = document.createElement('div');
   note.className = 'dim';
-  note.textContent = err
-    ? `Dahilan: ${err}. Gamitin ang alinman sa dalawang buton sa ibaba — tiyak na gumagana ang mga ito.`
-    : 'Kung wala sa Downloads, gamitin ang dalawang buton sa ibaba.';
+  note.textContent = `Dahilan: ${err}. Gamitin ang buton sa ibaba.`;
 
   const row = document.createElement('div');
   row.className = 'opts';
-
   const copy = document.createElement('button');
   copy.textContent = '📋 Kopyahin ang buong laman';
   copy.onclick = async () => {
     try {
-      await navigator.clipboard.writeText(body);
-      copy.textContent = '✓ Nakopya na — i-paste mo kahit saan';
+      await navigator.clipboard.writeText(typeof body === 'string' ? body : '[binary]');
+      copy.textContent = '✓ Nakopya na';
     } catch {
       copy.textContent = '✗ Hindi makopya';
     }
   };
-
-  const open = document.createElement('button');
-  open.textContent = '🔗 Buksan sa bagong tab';
-  open.onclick = () => {
-    // Bilang plain text ito binubuksan para makita agad; Ctrl+S para i-save.
-    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
-    chrome.tabs.create({ url });
-    open.textContent = '✓ Nasa bagong tab — Ctrl+S para i-save';
-    setTimeout(() => URL.revokeObjectURL(url), 120000);
-  };
-
-  row.append(copy, open);
+  row.append(copy);
   box.append(b, note, row);
   log.append(box);
   log.scrollTop = log.scrollHeight;
