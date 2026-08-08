@@ -236,6 +236,47 @@
       .usagebox .ubar { grid-column: 1 / -1; height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
       .usagebox .ubar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
 
+      /* --- DOC CARD: live preview ng isinusulat na artikulo --- */
+      .doccard {
+        border: 1px solid var(--accent); border-radius: 10px; padding: 11px;
+        background: color-mix(in srgb, var(--accent) 5%, var(--bg)); display: grid; gap: 8px;
+      }
+      .doccard > b { font-size: 13px; }
+      .doccard .docoutline { color: var(--dim); font-size: 11px; line-height: 1.5; }
+      .doccard details summary { cursor: pointer; color: var(--accent); font-size: 11.5px; user-select: none; }
+      .doccard .docbody {
+        max-height: 300px; overflow-y: auto; margin-top: 7px; padding: 9px;
+        border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12px;
+      }
+      .doccard .docbody h1 { font-size: 15px; margin: 0 0 6px; }
+      .doccard .docbody h2 { font-size: 13.5px; margin: 10px 0 5px; }
+      .doccard .docbody h3 { font-size: 12.5px; margin: 8px 0 4px; }
+      .doccard .docbody p, .doccard .docbody li { margin: 0 0 6px; line-height: 1.55; }
+      .doccard .docbody ul { margin: 0 0 6px; padding-left: 18px; }
+      .doccard .docbody blockquote { margin: 0 0 6px; padding-left: 9px; border-left: 2px solid var(--line); color: var(--dim); }
+      .doccard .opts button { font-size: 11.5px; }
+
+      /* --- KNOWLEDGE HUB rows --- */
+      .hubrow { display: flex; gap: 6px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--line); }
+      .hubrow:last-child { border-bottom: none; }
+      .hubrow .kind {
+        font: 700 8.5px/1.6 ui-monospace, monospace; letter-spacing: .05em; border-radius: 4px;
+        padding: 0 5px; flex: none; text-transform: uppercase;
+      }
+      .hubrow .kind.fix { background: color-mix(in srgb, var(--ask) 16%, var(--bg)); color: var(--ask); }
+      .hubrow .kind.gotcha { background: color-mix(in srgb, var(--err) 14%, var(--bg)); color: var(--err); }
+      .hubrow .kind.pref { background: color-mix(in srgb, var(--accent) 16%, var(--bg)); color: var(--accent); }
+      .hubrow .kind.note { background: color-mix(in srgb, var(--dim) 16%, var(--bg)); color: var(--dim); }
+      .hubrow .txt { flex: 1; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+      .hubrow .dom { color: var(--dim); font-size: 10.5px; font-family: ui-monospace, monospace; }
+      .hubrow button { padding: 1px 6px; font-size: 11px; border: none; background: none; color: var(--dim); }
+      .hubrow button:hover { color: var(--accent); background: none; }
+      .hubrow button.on { color: var(--accent); }
+      .hubbox { border: 1px solid var(--line); border-radius: 10px; padding: 11px; background: var(--panel); display: grid; gap: 8px; }
+      .hubbox .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+      .hubbox .chips button { font-size: 11px; padding: 3px 9px; border-radius: 99px; }
+      .hubbox .chips button.sel { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
       /* --- CONNECTORS gallery — parang kay Claude: listahan, Connect, status --- */
       .connbox { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--panel); display: grid; gap: 10px; }
       .connbox .crow {

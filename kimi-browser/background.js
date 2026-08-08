@@ -1,6 +1,7 @@
 import { needsApproval, schemaFor, runTool, setOverlay, setStatus, setCaption, currentDomain, workingUrl, setScope, markApproved, resetApprovals, SCHEMA as SCHEMA_ALL, WRITES } from './tools.js';
-import { promptFor } from './memory.js';
+import { hubAdd, hubPromptFor, similarity, needsConsolidation, consolidationInput, applyConsolidation } from './hub.js';
 import { GOOGLE_TOOLS, GOOGLE_TOOL_NAMES, runGoogleTool } from './google.js';
+import { setDocSession } from './docs.js';
 
 // --- PROVIDERS ---
 // Ang DashScope (Alibaba) ay may OpenAI-compatible endpoint, kaya iisa ang daloy
@@ -56,6 +57,20 @@ ng kahit anong tool. Partikular:
   Huwag itong subukan nang paulit-ulit sa pag-asang iba ang mangyayari.
 Ang tanda ng magaling na katulong ay hindi ang dami ng hakbang, kundi ang pagkakaalam
 kung kailan tapos na.
+
+MAHABANG DOKUMENTO: kapag humingi ang user ng artikulo, blog post, report, o anumang
+mahabang sulatin, gamitin ang \`write_document\` kada seksyon (300-600 salita bawat tawag)
+— HUWAG mong isusulat ang buong artikulo sa sagot mo. Ang laman ay napupunta sa buffer
+na wala sa usapan, kaya kahit 3,000 salita ay hindi nagpapalaki ng konteksto. Pagkatapos
+ng huling seksyon, sabihin lang na handa na ito at may mga export button (.docx, .pptx,
+.md) sa preview card ng user. Kung ipapasok ito sa WordPress, gamitin ang paste_large
+na may from_document: true — hindi mo na kailangang isulat muli ang laman.
+
+MAY KNOWLEDGE HUB KA: may \`recall\` tool para hanapin ang mga naitala mong aral, kahit
+galing sa ibang site. Gamitin ito kapag may error na parang naranasan mo na, o bago
+mag-explore sa site na parang pamilyar. Kapag may natutunan kang mahalaga, itala gamit
+ang \`remember\` — piliin ang tamang kind: fix (tamang paraan matapos ang mali), gotcha
+(bitag ng site), pref (gusto ng user), note (iba pa).
 
 TIPID SA KONTEKSTO — mahalaga ito, basahin mong mabuti: ang bawat bagay na pumapasok sa
 usapan ay binabayaran MULI sa bawat kasunod mong hakbang. Kaya ang isang buong page dump
@@ -216,6 +231,32 @@ export function compactShots(messages) {
   return saved;
 }
 
+// Ang laman ng artikulo ay nasa tool_call ARGUMENTS ng assistant messages — nananatili
+// ito sa history kahit nasa storage na ang dokumento. Ito ang katumbas ng compactPages
+// para sa mahabang pagsusulat: ang mga LUMANG seksyon ay pinapalitan ng isang linya
+// dahil ligtas na sila sa document buffer. Walang nasisirang tool_call pairing.
+export function compactDocArgs(messages, keepLast = 1) {
+  const idx = [];
+  messages.forEach((m, i) => {
+    if ((m.tool_calls || []).some((c) => c.function?.name === 'write_document')) idx.push(i);
+  });
+  let saved = 0;
+  for (const i of idx.slice(0, -keepLast)) {
+    for (const c of messages[i].tool_calls || []) {
+      if (c.function?.name !== 'write_document') continue;
+      const before = (c.function.arguments || '').length;
+      if (before < 400) continue;
+      let title = '';
+      try {
+        title = JSON.parse(c.function.arguments || '{}').title || '';
+      } catch {}
+      c.function.arguments = JSON.stringify({ note: 'Nasa dokumento na ang seksyong ito.', title });
+      saved += before - c.function.arguments.length;
+    }
+  }
+  return saved;
+}
+
 // Ang TOOL TRAIL: kung ano ang TALAGANG ginawa ng worker, hindi lang ang sinabi niya.
 // Kung wala nito, prosa lang ang kayang husgahan ng auditor — hindi niya masasabing
 // "hindi mo naman talaga binuksan ang page na yan".
@@ -336,6 +377,67 @@ async function mcpCall(sanName, args) {
     .join('\n')
     .slice(0, 20000);
   return res?.isError ? { error: text || 'Nabigo ang connector tool.' } : { ok: true, resulta: text || '(walang laman)' };
+}
+
+// --- CONSOLIDATION: ang "sleep" ng memory ---
+// Kapag umipon na ang mga aral sa isang site, marami na ang magkakapatong. Isang
+// murang tawag ang nagpapagsama at nagpapaikli — ito ang paraan para MATUTO nang
+// hindi LUMALAKI. Failure-safe: kapag hindi mabasa ang sagot, walang binabago.
+export async function consolidateIfNeeded(domain, baseUrl, apiKey, model, sendFn) {
+  if (!domain || !baseUrl || !apiKey) return null;
+  if (!(await needsConsolidation(domain))) return null;
+  const { texts, count, target } = await consolidationInput(domain);
+  if (count < 6) return null;
+
+  let merged = [];
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        max_tokens: 800,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Ito ang mga tala ko tungkol sa ${domain} (${count} tala):\n${JSON.stringify(texts)}\n\n` +
+              `Pagsamahin: alisin ang magkakapareho, pagdugtungin ang magkaugnay, at isulat muli ` +
+              `bilang HANGGANG ${target} na maiikling tala (200 karakter pababa bawat isa), ` +
+              `pinakamahalaga muna. Panatilihin ang kongkretong detalye (pangalan ng buton, daan, bilang). ` +
+              `Ibalik LANG ang isang JSON array ng mga string — walang ibang teksto.`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const txt = (await res.json()).choices?.[0]?.message?.content || '';
+    const arr = /\[[\s\S]*\]/.exec(txt);
+    if (arr) {
+      try {
+        merged = JSON.parse(arr[0]);
+      } catch {}
+    }
+    // Fallback: mga linyang TALAGANG listahan (may gitling o numero). Sinasadyang
+    // mahigpit — kung tatanggapin natin ang kahit anong prosa, kayang burahin ng
+    // isang basurang sagot ("wala akong maibibigay") ang lahat ng aral sa domain.
+    if (!Array.isArray(merged) || !merged.length) {
+      merged = txt
+        .split('\n')
+        .filter((l) => /^\s*(?:[-•*]|\d+[.)])\s+\S/.test(l))
+        .map((l) => l.replace(/^\s*(?:[-•*]|\d+[.)])\s+/, '').trim())
+        .filter((l) => l.length > 10);
+    }
+    // Isa pang kandado: kung iisa lang ang naibalik samantalang marami ang tala,
+    // malamang hindi ito totoong consolidation — huwag ipagpalit.
+    if (merged.length === 1 && count >= 6) merged = [];
+  } catch {
+    return null; // ang pag-aayos ng memory ay hindi dapat magpabagsak ng kahit ano
+  }
+
+  const r = await applyConsolidation(domain, Array.isArray(merged) ? merged.slice(0, target) : []);
+  if (r?.ok) sendFn?.({ type: 'tool', name: '_hub', args: { domain, merged: count, into: r.into } });
+  return r;
 }
 
 // Pinapatay ng Chrome ang service worker pagkatapos ng ~30s na walang tawag sa Chrome API.
@@ -591,6 +693,10 @@ Mga bitag na alam mo na: ang score badge sa Posts list ay hindi agad nag-a-updat
 pagkatapos mag-save — ang nasa editor ang totoo. Ang pag-abot sa 100/100 ay hindi
 laging tama; kung ang natitirang checks ay hihingi ng pilit na keyword stuffing,
 sabihin sa user na mas mabuting iwan sa 90+ kaysa sirain ang pagkakasulat.
+
+ARTIKULO PAPUNTA SA WORDPRESS: kung may isinulat kang dokumento gamit ang write_document,
+huwag mo nang isulat muli ang laman — gamitin ang paste_large na may from_document: true
+sa content field o sa Elementor HTML widget. Ang HTML ay galing mismo sa dokumento.
 
 BILIS SA WP-ADMIN: alam mo na ang mga daloy dito, kaya diretso ka. Huwag mag-screenshot
 maliban kung talagang biswal ang tanong; huwag mag-read_page pagkatapos ng bawat type
@@ -1009,6 +1115,7 @@ chrome.runtime.onConnect.addListener((port) => {
     // I-setup ang scope group BAGO ang lahat — ang kasalukuyang tab ay papasok sa
     // purple group ng session na ito, at doon lang kikilos ang agent.
     await ensureScope(msg.sessionId, msg.title);
+    setDocSession(msg.sessionId); // ang document buffer ay per-session
     resetApprovals(); // ang Adaptive mode ay nagsisimula sa wala sa bawat gawain
 
     // Ang violet na ilaw sa toolbar icon — kita kahit sarado ang panel, para
@@ -1043,17 +1150,26 @@ chrome.runtime.onConnect.addListener((port) => {
     // AUTO-SKILLS: ang mga napatunayang daloy sa site na ito (mula sa mga dating
     // matagumpay na takbo) ay isinasama sa system prompt — hindi na mag-iisip mula
     // sa wala ang agent sa mga paulit-ulit na gawain.
+    // Isang beses lang kinukuha ang domain sa buong run — ito rin ang ginagamit ng
+    // lahat ng harvest, kaya tama ang pagkakatala kahit lumipat ng site sa gitna.
+    const runDomain = await currentDomain();
+    const visitedDomains = new Set(runDomain ? [runDomain] : []);
+    let lastToolError = '';
+
     const { workflows = {} } = await chrome.storage.local.get('workflows');
-    const flows = workflows[await currentDomain()] || [];
+    const flows = workflows[runDomain] || [];
     const flowNote = flows.length
       ? `\n\nMGA NAPATUNAYANG DALOY SA SITE NA ITO (galing sa dati mong matagumpay na takbo — sundan kung angkop sa gawain):\n${flows.join('\n---\n')}`
       : '';
+
+    // Ang unang utos ng user — ginagamit sa pagraranggo ng mga aral (task relevance).
+    const taskText = [...(msg.history || [])].reverse().find((m) => m.role === 'user' && typeof m.content === 'string')?.content || '';
 
     const modeNote = mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : '';
     const wpNote = (await workingUrl()).includes('wp-admin') ? WP_PLAYBOOK : '';
     const system =
       `Ang model na tumatakbo ngayon: ${model}. Kapag tinanong kung sino ka, ito ang sabihin mo — huwag magpanggap na ibang model.\n\n` +
-      SYSTEM + modeNote + wpNote + flowNote + (await promptFor(await currentDomain()));
+      SYSTEM + modeNote + wpNote + flowNote + (await hubPromptFor(runDomain, taskText));
 
     // EXPLICIT CACHE: ang system prompt ay pareho sa BAWAT hakbang, kaya perpekto
     // itong i-cache. Sa Alibaba (Token Plan/DashScope), ang `cache_control` ay
@@ -1117,7 +1233,16 @@ chrome.runtime.onConnect.addListener((port) => {
         if (c.function.name !== 'remember') continue;
         try {
           const a = JSON.parse(c.function.arguments || '{}');
-          await runTool('remember', a);
+          // BUG FIX: dati, ang domain ay nare-resolve sa DULO ng run (kung saan
+          // natapos ang agent), kaya sa gawaing dumaan sa maraming site ay maling
+          // domain ang naitatala. Ngayon: sinasabi ng model kung saan, at
+          // vine-verify natin laban sa mga tunay na napuntahan.
+          const dom = a.scope === 'site' ? (visitedDomains.has(a.domain) ? a.domain : runDomain) : '';
+          await hubAdd({
+            text: a.note, domain: dom,
+            kind: a.kind || (a.scope === 'site' ? 'note' : 'pref'),
+            source: 'reflect',
+          });
           send({ type: 'tool', name: 'remember', args: a });
         } catch {}
       }
@@ -1257,6 +1382,21 @@ chrome.runtime.onConnect.addListener((port) => {
       // Ang score ay naitatala LABAN SA WORKER MODEL — para sa dulo ng linggo,
       // makikita mo sa 📊 kung aling model talaga ang pinakamahusay, may datos.
       send({ type: 'usage', model: routedModel, role: 'worker', score: avg });
+
+      // HARVEST: kapag bumagsak, itago ang PINAKA-ACTIONABLE na linya ng puna —
+      // regex lang, walang dagdag na model call. Isa lang kada run: ang layunin ay
+      // aral, hindi transcript ng lahat ng auditor.
+      if (avg < 7 && critiques.length) {
+        const first = critiques[0];
+        const bullet = /^\s*(?:[-•*]|\d+[.)])\s*(.{20,200})/m.exec(first);
+        const aral = (bullet ? bullet[1] : first.replace(/^—[^\n]*\n/, '')).trim().slice(0, 190);
+        if (aral.length >= 20) {
+          hubAdd({
+            text: `Bagsak sa audit (${avg}/10): ${aral}`,
+            domain: runDomain, kind: 'gotcha', source: 'audit',
+          }).catch(() => {});
+        }
+      }
       return { avg, critique: critiques.join('\n\n') };
     }
 
@@ -1305,6 +1445,12 @@ chrome.runtime.onConnect.addListener((port) => {
         if (!/^IWASTO/i.test(line)) return; // TULOY = tahimik, walang ingay sa worker
         send({ type: 'tool', name: '_midcheck', args: { note: line.slice(0, 120) } });
         record({ role: 'user', content: `[SECOND BRAIN — gabay sa gitna ng gawain] ${line.slice(0, 300)}` });
+        // HARVEST: ang IWASTO ay ready-made na aral — may dahilan at may tamang hakbang
+        // na. Dati itong nawawala pagkatapos ng run; ngayon, naitatago nang libre.
+        hubAdd({
+          text: line.replace(/^IWASTO:?\s*/i, '').slice(0, 200),
+          domain: runDomain, kind: 'fix', source: 'iwasto',
+        }).catch(() => {});
       } catch {} // ang gabay ay hindi dapat magpabagsak ng gawain
     }
 
@@ -1342,7 +1488,12 @@ chrome.runtime.onConnect.addListener((port) => {
         if (!text || text.length < 40) return;
         const { workflows = {} } = await chrome.storage.local.get('workflows');
         const arr = workflows[domain] || [];
-        arr.unshift(text.slice(0, 700));
+        // DEDUP: kung halos pareho na ang isang naitalang daloy, PALITAN ito imbes na
+        // magdagdag — kung hindi, mapupuno ang apat na slot ng magkakaparehong workflow.
+        const w = text.slice(0, 700);
+        const dupe = arr.findIndex((x) => similarity(x, w) >= 0.7);
+        if (dupe >= 0) arr.splice(dupe, 1);
+        arr.unshift(w);
         workflows[domain] = arr.slice(0, 4); // apat na pinakabago kada site — sapat, hindi gulo
         await chrome.storage.local.set({ workflows });
         send({ type: 'tool', name: '_skill', args: { domain } });
@@ -1371,7 +1522,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // ang usapan at buhay ang cache. (Diskarte mula sa Manus context engineering.)
         let saved = 0;
         if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.6) {
-          saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages);
+          saved = compactPages(messages, (id) => toolNames.get(id)) + compactShots(messages) + compactDocArgs(messages);
         }
         if (saved > 2000) send({ type: 'tool', name: '_compact', args: { saved } });
 
@@ -1392,7 +1543,10 @@ chrome.runtime.onConnect.addListener((port) => {
         // AUTO-COMPACTION: bago mapuno ang konteksto, i-summarize ang naunang bahagi.
         if (totalChars(messages) > (CTX_CHARS[routedModel] || 110000) * 0.85) {
           const freed = await autoCompact(messages, baseUrl, apiKey, routedModel, abort.signal, async (a) => {
-            await runTool('remember', a);
+            await hubAdd({
+              text: a.note, domain: a.scope === 'site' ? runDomain : '',
+              kind: a.scope === 'site' ? 'note' : 'pref', source: 'compact',
+            });
             send({ type: 'tool', name: 'remember', args: a });
           });
           if (freed > 2000) send({ type: 'tool', name: '_compact', args: { saved: freed } });
@@ -1412,6 +1566,14 @@ chrome.runtime.onConnect.addListener((port) => {
                 name: '_escalate',
                 args: { why: failStreak >= 2 ? 'sunod na error' : 'laki ng konteksto', to: strongModel },
               });
+              // HARVEST: ang sunod-sunod na error na nagpalipat sa malakas na model ay
+              // senyales ng tunay na bitag ng site — itago para may babala sa susunod.
+              if (failStreak >= 2 && lastToolError) {
+                hubAdd({
+                  text: `Sunod-sunod na error dito hanggang kailanganin ang mas malakas na model — ${lastToolError}`,
+                  domain: runDomain, kind: 'gotcha', source: 'error',
+                }).catch(() => {});
+              }
             }
           }
         }
@@ -1520,7 +1682,22 @@ chrome.runtime.onConnect.addListener((port) => {
           if (name === 'plan') lastPlan = args; // para sa recitation
 
           let result;
-          if (name === 'collect') {
+          if (name === 'write_document') {
+            // Ang panel ang nagre-render ng progress card at ng mga export button —
+            // hindi dumadaan sa transcript ang laman, bilang lang.
+            result = await runTool(name, args);
+            if (result?.ok) {
+              send({
+                type: 'doc',
+                sessionId: msg.sessionId,
+                title: result.pamagat,
+                words: result.mga_salita,
+                sections: result.mga_seksyon,
+                outline: result.balangkas,
+              });
+            }
+            send({ type: 'tool', name, args: { title: args.title, words: result?.mga_salita } });
+          } else if (name === 'collect') {
             // Ang table ay napupunta sa tao, HINDI sa kasaysayan ng model. Bilang lang ang
             // ibinabalik natin — dito nagmumula ang malaking bahagi ng pagtitipid sa konteksto.
             send({ type: 'table', title: args.title, columns: args.columns, rows: args.rows });
@@ -1557,6 +1734,8 @@ chrome.runtime.onConnect.addListener((port) => {
                 run_shortcut: `Pinapatakbo ang ${args.name || 'shortcut'}`,
                 schedule_task: 'Nag-iiskedyul ng gawain',
                 plan: 'Nagpaplano…',
+                write_document: 'Sinusulat ang dokumento…',
+                recall: 'Binabalikan ang mga aral…',
               })[name] || (name.startsWith('mcp_') ? `Connector: ${name.slice(4)}` : name)
             );
             // ANG ARAL SA PAGE: hindi sapat ang "pinipindot ang X" — ang natututo lang
@@ -1604,6 +1783,15 @@ chrome.runtime.onConnect.addListener((port) => {
                   'o ibang ruta; o (b) huminto at sabihin sa user kung ano ang hindi mo kayang tapusin at bakit.',
               };
               send({ type: 'tool', name: '_loop', args: { tool: name, n: ulit } });
+              // HARVEST (isang beses lang, sa ika-3 — hindi sa bawat kasunod na subok):
+              // ang eksaktong hakbang na hindi tumatalab dito ay pinakamagamit na
+              // negatibong aral. Sa susunod, iiwasan na niya ito agad.
+              if (ulit === LOOP_LIMIT) {
+                hubAdd({
+                  text: `Hindi tumatalab ang ${name} ${JSON.stringify(core).slice(0, 90)} dito kahit 3 ulit — ibang ruta agad, huwag ulitin.`,
+                  domain: runDomain, kind: 'gotcha', source: 'loop',
+                }).catch(() => {});
+              }
             }
 
             if (hinarangan) {
@@ -1651,7 +1839,17 @@ chrome.runtime.onConnect.addListener((port) => {
             tool_call_id: call.id,
             content: JSON.stringify(result).slice(0, 30000),
           });
-          if (result?.error) stepHadError = true;
+          if (result?.error) {
+            stepHadError = true;
+            lastToolError = `${name}: ${String(result.error).slice(0, 130)}`;
+          }
+          // Bantayan kung saang site na siya napunta — para tama ang domain ng aral
+          // kahit maraming site ang nadaanan sa isang gawain.
+          if (result?.url) {
+            try {
+              visitedDomains.add(new URL(result.url).hostname.replace(/^www\./, ''));
+            } catch {}
+          }
         }
 
         // Model routing: sunod na error = senyales na kailangan ng mas malakas na model.
@@ -1702,6 +1900,10 @@ chrome.runtime.onConnect.addListener((port) => {
       // Usage tracking: ilang segundo ang buong takbo — ang tokens ay naipadala na kada tawag.
       send({ type: 'usage', model: routedModel, role: 'worker', runs: 1, seconds: Math.round((Date.now() - runStartAt) / 1000) });
       notify('Dianna', 'Tapos na ang gawain — buksan ang panel para makita ang resulta.');
+      // CONSOLIDATION ("sleep" ng memory): kapag umipon na ang mga aral sa isang site,
+      // isang murang tawag ang nagpapagsama ng magkakapareho at nagpapaikli. Dito
+      // lang tumatakbo — pagkatapos ng gawain, hindi humaharang, at may 24h throttle.
+      consolidateIfNeeded(runDomain, baseUrl, apiKey, model, send).catch(() => {});
       try {
         await chrome.action.setBadgeText({ text: '' }); // patayin ang ilaw
       } catch {}

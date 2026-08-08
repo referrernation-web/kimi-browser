@@ -1,6 +1,8 @@
 import { repairHistory } from './history.js';
 import { forSpeech } from './speech.js';
 import { googleConnect } from './google.js';
+import { parseMarkdown, blocksToHtml, makeDocx, makePptx } from './docx.js';
+import { docGet, docAsMarkdown, docAsHtml } from './docs.js';
 
 const $ = (id) => document.getElementById(id);
 const log = $('log');
@@ -190,6 +192,17 @@ function renderEntry(e) {
   else if (e.t === 'audit') addAudit(e.text, e.model, e.worker);
   else if (e.t === 'vote') addVote(e.avg, e.pass, e.n);
   else if (e.t === 'plan') addPlan(e.steps, e.done);
+  else if (e.t === 'doc') {
+    // Buhayin muli ang doc card mula storage — hindi nawawala kapag isinara ang panel.
+    docCards.delete(e.sessionId);
+    docGet(e.sessionId).then((d) => {
+      if (!d) return;
+      renderDocCard(active(), {
+        sessionId: e.sessionId, title: d.title, words: d.words,
+        sections: d.sections.length, outline: d.sections.map((s) => s.h),
+      });
+    });
+  }
   else add(e.t, e.text, e.model);
 }
 
@@ -1086,6 +1099,9 @@ const SAYS = {
   _midcheck: (a) => `🧐 Second brain: ${a.note}`,
   _autofix: (a) => `♻ Bumagsak sa ${a.avg}/10 — ipinapasulat muli ang sagot…`,
   _loop: (a) => `⛔ Hinarangan ang paulit-ulit na ${a.tool} (ika-${a.n}) — nagsasayang na ito`,
+  _hub: (a) => `🧠 Pinagsama ang mga aral sa ${a.domain} (${a.merged} → ${a.into})`,
+  recall: (a) => `Binabalikan ang mga aral: "${String(a.query).slice(0, 40)}"`,
+  write_document: (a) => `📄 Sinusulat${a.title ? ` ang "${String(a.title).slice(0, 40)}"` : ''}${a.words ? ` — ${a.words} salita na` : ''}`,
   _mcp: (a) => `🔌 MCP konektado — ${a.n} connector tools`,
   _google: () => '📧 Gmail at Sheets konektado',
   gmail_search: (a) => `Naghahanap sa Gmail: "${String(a.query).slice(0, 40)}"${why(a)}`,
@@ -1104,6 +1120,101 @@ const hostOf = (u) => {
   }
 };
 const describe = (name, args) => (SAYS[name] ? SAYS[name](args || {}) : name);
+
+// --- DOC CARD: ang live na preview ng isinusulat na artikulo ---
+// Isang card lang kada session — ina-update in place habang dumadagdag ang seksyon,
+// kaya hindi nagkakalat sa log. Nabubuhay ito mula storage kahit isara ang panel.
+const docCards = new Map(); // sessionId -> element
+
+function renderDocCard(sess, m) {
+  const sid = m.sessionId || sess.id;
+  let box = docCards.get(sid);
+  if (!box || !box.isConnected) {
+    box = document.createElement('div');
+    box.className = 'doccard';
+    docCards.set(sid, box);
+    if (sess.id === activeId) log.append(box);
+    // Itala sa transcript para mabuo ulit pagbukas ng panel.
+    if (!sess.transcript.some((e) => e.t === 'doc')) sess.transcript.push({ t: 'doc', sessionId: sid });
+  }
+  box.replaceChildren();
+
+  const head = document.createElement('b');
+  head.textContent = `📄 ${m.title || 'Dokumento'}`;
+  const meta = document.createElement('span');
+  meta.className = 'dim';
+  meta.textContent = ` — ${m.words || 0} salita · ${m.sections || 0} seksyon`;
+  head.append(meta);
+  box.append(head);
+
+  if (m.outline?.length) {
+    const ol = document.createElement('div');
+    ol.className = 'docoutline';
+    ol.textContent = m.outline.join(' · ');
+    box.append(ol);
+  }
+
+  // Preview: nakatago hanggang pindutin — hindi dapat lamunin ang panel.
+  const det = document.createElement('details');
+  const sum = document.createElement('summary');
+  sum.textContent = 'Tingnan ang laman';
+  const body = document.createElement('div');
+  body.className = 'docbody';
+  det.append(sum, body);
+  det.ontoggle = async () => {
+    if (!det.open || body.dataset.filled) return;
+    body.innerHTML = await docAsHtml(sid);
+    body.dataset.filled = '1';
+  };
+  box.append(det);
+
+  const row = document.createElement('div');
+  row.className = 'opts';
+  const mkBtn = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.onclick = async () => {
+      const old = b.textContent;
+      b.textContent = '…';
+      try {
+        await fn();
+        b.textContent = '✓';
+      } catch (e) {
+        b.textContent = '✗';
+      }
+      setTimeout(() => (b.textContent = old), 2500);
+    };
+    return b;
+  };
+  const safeName = (t) => (String(t || 'dokumento').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50) || 'dokumento');
+
+  row.append(
+    mkBtn('⤓ .docx', async () => {
+      const doc = await docGet(sid);
+      const blocks = parseMarkdown(doc.sections.map((s) => s.md).join('\n\n'));
+      await saveBlob(makeDocx(doc.title, blocks), safeName(doc.title) + '.docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    }),
+    mkBtn('⤓ .pptx', async () => {
+      const doc = await docGet(sid);
+      const blocks = parseMarkdown(doc.sections.map((s) => s.md).join('\n\n'));
+      await saveBlob(makePptx(doc.title, blocks), safeName(doc.title) + '.pptx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    }),
+    mkBtn('⤓ .md', async () => {
+      const doc = await docGet(sid);
+      await saveBlob(await docAsMarkdown(sid), safeName(doc.title) + '.md', 'text/markdown');
+    }),
+    mkBtn('⤓ .html', async () => {
+      const doc = await docGet(sid);
+      await saveBlob(`<!doctype html><meta charset="utf-8"><title>${doc.title}</title>` + (await docAsHtml(sid)),
+        safeName(doc.title) + '.html', 'text/html');
+    }),
+    mkBtn('📋 Kopyahin', async () => navigator.clipboard.writeText(await docAsMarkdown(sid)))
+  );
+  box.append(row);
+  log.scrollTop = log.scrollHeight;
+}
 
 // --- PENDING PROMPTS: para mabuhay ang tanong kahit lumipat ka ng session ---
 function trackPending(sid, p) {
@@ -1529,6 +1640,8 @@ function onMessage(m) {
       return save();
     case 'recorded':
       return finishRecording(m.steps);
+    case 'doc':
+      return renderDocCard(sess, m);
     case 'usage':
       return trackUsage(m);
     case 'done':
@@ -2113,35 +2226,132 @@ $('tap').onclick = async () => {
 };
 
 // --- ANG NATUTUNAN NIYA: nakikita at nabubura ---
+// --- 🧠 KNOWLEDGE HUB: nakikita, nahahanap, naaayos ---
+// Ang lumang bersyon ay listahan lang na may delete-by-INDEX — at napapaso ang index
+// pagkatapos ng unang bura, kaya maling tala ang natatanggal. Dito, id-based lahat.
 $('mem').onclick = async () => {
-  const { load, forget } = await import('./memory.js');
-  const mem = await load();
-  const rows = [
-    ...mem.user.map((s, i) => ['user', i, '', s]),
-    ...Object.entries(mem.sites).flatMap(([d, xs]) => xs.map((s, i) => ['site', i, d, s])),
-  ];
+  $('menu').style.display = 'none';
+  const { hubList, hubForget, hubEdit, hubPin } = await import('./hub.js');
+  const { workflows = {} } = await chrome.storage.local.get('workflows');
+
   const box = document.createElement('div');
-  box.className = 'confirm';
-  const b = document.createElement('b');
-  b.textContent = rows.length ? `Natutunan niya (${rows.length})` : 'Wala pa siyang natutunan.';
-  box.append(b);
-  for (const [scope, i, domain, text] of rows) {
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.style.marginTop = '4px';
-    const t = document.createElement('span');
-    t.className = 'dim';
-    t.style.flex = '1';
-    t.textContent = (domain ? `${domain}: ` : 'ikaw: ') + text;
-    const x = document.createElement('button');
-    x.textContent = '×';
-    x.onclick = async () => {
-      await forget(scope, i, domain);
-      row.remove();
-    };
-    row.append(t, x);
-    box.append(row);
+  box.className = 'hubbox';
+  let filter = 'all';
+  let query = '';
+
+  const head = document.createElement('b');
+  const search = document.createElement('input');
+  search.placeholder = 'Hanapin sa mga aral…';
+  search.oninput = () => { query = search.value.toLowerCase(); paint(); };
+
+  const chips = document.createElement('div');
+  chips.className = 'chips';
+  const list = document.createElement('div');
+
+  for (const [key, label] of [['all', 'Lahat'], ['fix', 'fix'], ['gotcha', 'gotcha'],
+    ['pref', 'pref'], ['note', 'note'], ['wf', '📚 daloy']]) {
+    const c = document.createElement('button');
+    c.textContent = label;
+    c.dataset.k = key;
+    c.onclick = () => { filter = key; paint(); };
+    chips.append(c);
   }
+  box.append(head, search, chips, list);
+
+  async function paint() {
+    const records = await hubList();
+    for (const c of chips.children) c.classList.toggle('sel', c.dataset.k === filter);
+    const wfCount = Object.values(workflows).reduce((n, a) => n + a.length, 0);
+    head.textContent = `🧠 Knowledge hub (${records.length} aral · ${wfCount} daloy)`;
+    list.replaceChildren();
+
+    if (filter === 'wf') {
+      for (const [domain, arr] of Object.entries(workflows)) {
+        arr.forEach((w, i) => {
+          const row = document.createElement('div');
+          row.className = 'hubrow';
+          const k = document.createElement('span');
+          k.className = 'kind note';
+          k.textContent = 'daloy';
+          const t = document.createElement('span');
+          t.className = 'txt';
+          t.textContent = w.slice(0, 300);
+          const d = document.createElement('span');
+          d.className = 'dom';
+          d.textContent = domain;
+          const x = document.createElement('button');
+          x.textContent = '×';
+          x.onclick = async () => {
+            arr.splice(i, 1);
+            if (!arr.length) delete workflows[domain];
+            await chrome.storage.local.set({ workflows });
+            paint();
+          };
+          row.append(k, t, d, x);
+          list.append(row);
+        });
+      }
+      if (!wfCount) list.textContent = 'Wala pang natutunang daloy. Kailangang naka-ON ang 🧐 second brain — ang score nito ang quality gate.';
+      return;
+    }
+
+    const shown = records
+      .filter((r) => filter === 'all' || r.kind === filter)
+      .filter((r) => !query || r.text.toLowerCase().includes(query) || r.domain.includes(query))
+      .sort((a, b) => (b.pinned - a.pinned) || (b.lastUsed - a.lastUsed));
+
+    if (!shown.length) {
+      list.textContent = records.length ? 'Walang tumugma sa hanap mo.' : 'Wala pa siyang natutunan. Matututo siya habang gumagawa — lalo na sa mga pagkakamali.';
+      return;
+    }
+
+    for (const r of shown) {
+      const row = document.createElement('div');
+      row.className = 'hubrow';
+      const k = document.createElement('span');
+      k.className = 'kind ' + r.kind;
+      k.textContent = r.kind;
+      k.title = 'galing sa: ' + r.source;
+      const t = document.createElement('span');
+      t.className = 'txt';
+      t.textContent = r.text;
+      const d = document.createElement('span');
+      d.className = 'dom';
+      d.textContent = r.domain || 'ikaw';
+      d.title = `${r.hits} beses nagamit`;
+
+      const pin = document.createElement('button');
+      pin.textContent = '📌';
+      pin.className = r.pinned ? 'on' : '';
+      pin.title = r.pinned ? 'Naka-pin — laging kasama sa injection' : 'I-pin: laging isasama, hindi kailanman buburahin';
+      pin.onclick = async () => { await hubPin(r.id, !r.pinned); paint(); };
+
+      const ed = document.createElement('button');
+      ed.textContent = '✎';
+      ed.title = 'Ayusin ang teksto';
+      ed.onclick = () => {
+        const inp = document.createElement('input');
+        inp.value = r.text;
+        inp.style.flex = '1';
+        inp.onkeydown = async (e) => {
+          if (e.key === 'Enter') { await hubEdit(r.id, inp.value); paint(); }
+          if (e.key === 'Escape') paint();
+        };
+        t.replaceWith(inp);
+        inp.focus();
+      };
+
+      const x = document.createElement('button');
+      x.textContent = '×';
+      x.title = 'Burahin';
+      x.onclick = async () => { await hubForget(r.id); paint(); };
+
+      row.append(k, t, d, pin, ed, x);
+      list.append(row);
+    }
+  }
+
+  await paint();
   log.append(box);
   log.scrollTop = log.scrollHeight;
 };

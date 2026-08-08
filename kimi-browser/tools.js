@@ -1,6 +1,7 @@
 import { readPage, extractPage, clickRef, typeRef, scrollPage, overlay, listenPage, readWhisperTab,
          hookConsole, readConsole, pasteLarge, recorderStart, recorderStop, applyStep, pageSig } from './page-fns.js';
-import { remember } from './memory.js';
+import { hubAdd, recall as hubRecall } from './hub.js';
+import { docAppend, docAsHtml } from './docs.js';
 
 // Mga tool na nagbabago ng kalagayan sa labas ng browser.
 export const WRITES = new Set(['click', 'type', 'navigate', 'new_tab', 'close_tab', 'paste_large', 'run_shortcut', 'schedule_task']);
@@ -185,8 +186,52 @@ export const SCHEMA = [
             description: '"site" = tungkol sa website na ito. "user" = tungkol sa tao.',
           },
           note: { type: 'string', description: 'Isang pangungusap.' },
+          kind: {
+            type: 'string',
+            enum: ['fix', 'gotcha', 'pref', 'note'],
+            description:
+              'fix = tamang paraan matapos ang maling diskarte; gotcha = bitag o patibong ng site; pref = gusto o ayaw ng user; note = iba pa.',
+          },
+          domain: {
+            type: 'string',
+            description:
+              'Ang domain na pinag-aralan (hal. "shopee.ph"). Ilagay ito kapag site scope at hindi ang huling site na kinaroroonan mo ang pinag-uusapan.',
+          },
         },
         required: ['scope', 'note'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_document',
+      description:
+        'Isulat ang MAHABANG dokumento (artikulo, report, blog post) nang PAUNTI-UNTI — hindi sa sagot mo. Tawagin ito kada seksyon, 300-600 salita bawat tawag, markdown ang format (## heading tapos mga talata). Ang laman ay napupunta sa document buffer na WALA sa usapan, kaya hindi lumalaki ang konteksto kahit gaano kahaba ang artikulo. May live preview ang user at mga export button (.docx, .pptx, .md, .html). GAMITIN ITO sa tuwing hihingi ng artikulo o mahabang dokumento — huwag mong isusulat ang buong artikulo sa sagot mo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          append: { type: 'string', description: 'Ang seksyon, markdown. 300-600 salita.' },
+          title: { type: 'string', description: 'Pamagat ng dokumento — ilagay sa unang tawag.' },
+          start_new: { type: 'boolean', description: 'Simulan ang panibagong dokumento (buburahin ang dati).' },
+          replace_section: { type: 'number', description: 'Index ng seksyong papalitan, para sa rebisyon (0 = una).' },
+        },
+        required: ['append'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recall',
+      description:
+        'Hanapin sa knowledge hub mo ang mga naitalang aral na may kaugnayan sa isang paksa o problema. GAMITIN ITO bago mag-explore sa site na parang pamilyar, o kapag may error na parang naranasan mo na — baka may naitala kang solusyon dati. Hinahanap nito ang LAHAT ng aral, kahit sa ibang site, hindi lang ang mga awtomatikong ipinapakita sa iyo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Ang paksa o problemang hinahanap.' },
+        },
+        required: ['query'],
       },
     },
   },
@@ -266,10 +311,15 @@ export const SCHEMA = [
         type: 'object',
         properties: {
           ref: { type: 'string' },
-          text: { type: 'string', description: 'Ang buong nilalaman na ipapaste.' },
+          text: { type: 'string', description: 'Ang buong nilalaman na ipapaste. HUWAG itong punan kapag from_document.' },
           chunk: { type: 'number', description: 'Laki ng bawat bahagi (default 2000 karakter).' },
+          from_document: {
+            type: 'boolean',
+            description:
+              'Kunin ang laman mula sa dokumentong isinulat mo gamit ang write_document, bilang HTML. GAMITIN ITO kapag ipapasok mo sa WordPress o Elementor ang artikulong ginawa mo — hindi na kailangang isulat muli ang laman dito, kaya walang dagdag na token.',
+          },
         },
-        required: ['ref', 'text'],
+        required: ['ref'],
       },
     },
   },
@@ -589,7 +639,16 @@ export async function runTool(name, args) {
       // Ang panel ang nagre-render ng checklist mula sa tool event — dito, tala lang.
       return { ok: true, note: 'Naitala ang plano — makikita ito ng user. Ituloy mo na.' };
     case 'remember':
-      return remember(args.scope, args.note, await currentDomain());
+      return hubAdd({
+        text: args.note,
+        domain: args.scope === 'site' ? args.domain || (await currentDomain()) : '',
+        kind: args.kind || (args.scope === 'site' ? 'note' : 'pref'),
+        source: 'user',
+      });
+    case 'recall':
+      return hubRecall(args.query);
+    case 'write_document':
+      return docAppend(args);
     case 'read_page':
       // 9,000 karakter ang badyet — ~25% mas kaunting input tokens kada basa,
       // mas mabilis magsimula ang bawat tawag. Sapat pa rin para sa karamihan ng page.
@@ -610,9 +669,14 @@ export async function runTool(name, args) {
       });
       return res.result;
     }
-    case 'paste_large':
+    case 'paste_large': {
       await point(args.ref, 'Sinusulatan');
-      return inPage(pasteLarge, [args.ref, args.text, args.chunk]);
+      // ZERO-TOKEN NA DAAN PAPUNTANG WORDPRESS: ang laman ng dokumento ay dumadaan
+      // mula storage papuntang page nang HINDI dumadaan sa model.
+      const laman = args.from_document ? await docAsHtml() : args.text;
+      if (!laman) return { error: 'Walang laman na ipapaste — walang dokumento o walang text.' };
+      return inPage(pasteLarge, [args.ref, laman, args.chunk]);
+    }
     case 'run_shortcut': {
       const { shortcuts = {} } = await chrome.storage.local.get('shortcuts');
       const sc = shortcuts[args.name];

@@ -3,6 +3,55 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.15.0 (knowledge hub at article generator)
+
+### 🧠 Persistent learning na HINDI nagpapalaki ng context
+
+Dati, tatlong pinakamahalagang aral ay **kinokompute na pero itinatapon** pagkatapos ng
+bawat run: ang IWASTO ng auditor, ang puna kapag bumagsak sa audit, at ang mga hakbang
+na hinaharangan ng loop guard. Ngayon, hina-harvest na sila — **at zero dagdag na model
+call**, dahil nakalkula na sila noon pa.
+
+- **Bounded injection.** Dati, LAHAT ng tala ay ibinubuhos sa system prompt (worst case
+  ~24,000 karakter, na binabayaran kada hakbang). Ngayon: **top-10 lang na
+  pinaka-may-kaugnayan, may hard limit na 1,500 karakter**. Malaking tipid sa quota.
+- **`recall` tool** — para sa mga aral na wala sa top-10, kaya niyang hanapin ang lahat,
+  kahit galing sa ibang site.
+- **Matalinong dedup** — hindi na exact-match lang; ang magkatulad na aral ay
+  pinagsasama at pinapalakas (hits), hindi dinodoble.
+- **Consolidation** — kapag umipon na ang tala sa isang site, isang murang tawag ang
+  nagpagsasama at nagpapaikli sa kanila. Tumatakbo BAGO mag-evict, kaya walang aral na
+  basta naitatapon. May 24-oras na throttle.
+- **Inayos na 🧠 UI** — may search, filter kada uri (fix/gotcha/pref/note/daloy),
+  **📌 pin** (laging kasama, hindi kailanman nabubura), **✎ edit**, at delete na
+  id-based — ayos na ang dating bug kung saan maling tala ang natatanggal kapag
+  sunod-sunod kang nagbura.
+- Naayos din: ang aral ay naitatala na sa TAMANG domain kahit maraming site ang nadaanan
+  sa isang gawain, at hindi na napupuno ng magkakaparehong workflow ang isang site.
+
+### 📄 Article generator na may .docx at .pptx
+
+- **`write_document` tool** — isinusulat ang mahabang artikulo nang paunti-unti sa isang
+  buffer na **wala sa usapan**. Ang tool result ay bilang lang (355 karakter para sa
+  5,600-karakter na artikulo), kaya kahit 3,000 salita ay hindi nagpapalaki ng konteksto.
+- **Export: .docx, .pptx, .md, .html** — gawa nang **walang external library**; parehong
+  OOXML zip ang Word at PowerPoint, kaya iisang zip writer lang. Sa .pptx, bawat heading
+  ay nagiging slide.
+- **Live preview card** sa panel: pamagat, bilang ng salita, balangkas, at ang mga export
+  button. Nabubuhay ito kahit isara mo ang panel o mamatay ang service worker.
+- **Diretso sa WordPress** — `paste_large` na may `from_document: true`: ang HTML ay
+  dumadaan mula storage papuntang editor nang **hindi dumadaan sa model**, kaya walang
+  dagdag na token kahit gaano kahaba ang artikulo.
+
+### Paano subukan
+
+1. Magpasulat ng artikulo: *"sumulat ka ng 1,500-salitang artikulo tungkol sa winter HVAC
+   tips"* → panoorin ang doc card na umuusad, tapos i-export sa .docx at .pptx.
+2. Sa wp-admin, sabihing ipasok ang artikulo → dapat `from_document` ang gamitin niya.
+3. Buksan ang 🧠 pagkatapos ng ilang gawain — dapat may mga `gotcha` at `fix` na aral,
+   lalo na kung may nagkamali sa daan.
+4. Sa 📊, tingnan kung bumaba ang input tokens kada takbo.
+
 ## Anong bago sa v0.14.1 (mabilis at malakas na sa RankMath)
 
 Dati, ang pagpapataas ng RankMath score ay eksplorasyon mula sa wala: binabasa niya
