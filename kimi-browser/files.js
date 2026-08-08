@@ -129,6 +129,73 @@ export async function extractText(name, buf) {
   throw new Error(`Hindi suportado ang .${ext}. Subukan ang .txt, .md, .csv, .docx, o .pptx.`);
 }
 
+// ============ URL IMPORT: ang "prompt scanner" ============
+// Ang master prompt ay madalas nasa Google Docs o sa isang naka-host na .md. Imbes na
+// i-download pa ito at i-upload, i-paste mo lang ang link. Ang Google Docs ay may
+// export endpoint na nagbabalik ng plain text kapag naka-share ang link.
+
+export function toFetchUrl(url) {
+  const u = String(url || '').trim();
+  // Google Docs → text export
+  let m = /docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/.exec(u);
+  if (m) return { url: `https://docs.google.com/document/d/${m[1]}/export?format=txt`, uri: 'gdoc' };
+  // Google Sheets → CSV export
+  m = /docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/.exec(u);
+  if (m) return { url: `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv`, uri: 'gsheet' };
+  // GitHub blob → raw
+  m = /github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/.exec(u);
+  if (m) return { url: `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3]}`, uri: 'raw' };
+  return { url: u, uri: 'raw' };
+}
+
+// Ang pangalan na ipapakita — hinuhugot sa URL, o sa unang heading ng laman.
+function nameFromUrl(url, text) {
+  const h = /^#\s+(.+)$/m.exec(text || '');
+  if (h) return h[1].trim().slice(0, 80);
+  try {
+    const p = new URL(url).pathname.split('/').filter(Boolean).pop();
+    if (p && p !== 'export') return decodeURIComponent(p).slice(0, 80);
+  } catch {}
+  return 'Naka-import mula sa link';
+}
+
+export async function importUrl(projectId, url) {
+  const { url: fetchUrl, uri } = toFetchUrl(url);
+  if (!/^https?:\/\//i.test(fetchUrl)) return { error: 'Kailangan ng buong link na nagsisimula sa https://' };
+
+  let res;
+  try {
+    res = await fetch(fetchUrl, { credentials: 'omit' });
+  } catch {
+    return { error: 'Hindi maabot ang link. Tingnan ang internet mo o ang pagkakasulat ng URL.' };
+  }
+  if (!res.ok) {
+    if (uri === 'gdoc' || uri === 'gsheet') {
+      return {
+        error:
+          `Hindi mabuksan (HTTP ${res.status}). Karaniwang ibig sabihin nito ay PRIVATE ang dokumento. ` +
+          'Sa Google Docs: Share → General access → "Anyone with the link" → Viewer. ' +
+          'O kaya i-download bilang .md o .txt at i-upload dito.',
+      };
+    }
+    return { error: `Hindi mabuksan ang link (HTTP ${res.status}).` };
+  }
+
+  const raw = await res.text();
+  // Ang naka-share na Google Doc na private ay nagbabalik ng HTML sign-in page, hindi teksto.
+  if (/<html/i.test(raw.slice(0, 400)) && (uri === 'gdoc' || uri === 'gsheet')) {
+    return {
+      error:
+        'Sign-in page ang naibalik, kaya PRIVATE pa ang dokumento. Sa Google Docs: Share → ' +
+        '"Anyone with the link" → Viewer, tapos subukan ulit.',
+    };
+  }
+  const text = /<html/i.test(raw.slice(0, 400)) ? stripTags(raw) : raw;
+  if (!text.trim()) return { error: 'Walang mabasang teksto sa link na ito.' };
+
+  return addFile(projectId, nameFromUrl(url, text), text);
+}
+
 // ============ CHUNKING + SEARCH ============
 
 export function chunkText(text) {
@@ -222,6 +289,23 @@ export function addFile(projectId, name, text) {
   });
 }
 
+// Alin ang MASTER PROMPT? Kapag may nakamarka, tahasang tinuturo ito sa system prompt
+// bilang pinagmumulan ng istruktura at disenyo — hindi na kailangang hulaan ng agent
+// kung alin sa limang dokumento ang susundin.
+export function setFileRole(projectId, fileId, role) {
+  return enqueue(async () => {
+    const ps = await get(PKEY, {});
+    const p = ps[projectId];
+    if (!p) return { error: 'Walang ganitong project.' };
+    for (const f of p.files) {
+      if (f.id === fileId) f.role = role || '';
+      else if (role === 'prompt' && f.role === 'prompt') f.role = ''; // isa lang ang master
+    }
+    await set({ [PKEY]: ps });
+    return { ok: true };
+  });
+}
+
 export function deleteFile(projectId, fileId) {
   return enqueue(async () => {
     const ps = await get(PKEY, {});
@@ -272,7 +356,18 @@ export async function projectPrompt(sessionId) {
     out +=
       `\n\nMGA DOKUMENTO SA PROJECT (${p.files.length}) — ang LAMAN ay hindi nakalagay dito para hindi lumaki ang konteksto. ` +
       `Gamitin ang search_files para hanapin ang kailangan mo:\n` +
-      p.files.map((f) => `- ${f.name}`).join('\n');
+      p.files.map((f) => `- ${f.name}${f.role === 'prompt' ? '  ← MASTER PROMPT' : ''}`).join('\n');
+
+    const master = p.files.find((f) => f.role === 'prompt');
+    if (master) {
+      out +=
+        `\n\nANG MASTER PROMPT NG PROJECT NA ITO AY "${master.name}". Ito ang batayan ng ISTRUKTURA ` +
+        `at ng DISENYO. BAGO ka magsulat, mag-search_files dito nang ilang beses para makuha ang: ` +
+        `(a) ang pagkakasunod ng mga seksyon, (b) ang eksaktong pangalan ng CSS class at ang palette, ` +
+        `at (c) ang mga tuntunin sa nilalaman. Sundin ito NANG BUO — huwag mag-imbento ng sariling ` +
+        `disenyo, sariling kulay, o sariling pangalan ng klase. Kung may halimbawang artikulo sa mga ` +
+        `dokumento, kopyahin ang eksaktong istruktura at klase nito.`;
+    }
   }
   return out;
 }

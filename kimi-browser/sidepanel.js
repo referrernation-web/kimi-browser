@@ -1085,6 +1085,191 @@ $('cartesiakey').onchange = () => {
 };
 $('cartesiavoice').onchange = () => chrome.storage.local.set({ cartesiaVoice: $('cartesiavoice').value });
 // pwedeng ipamigay ang sa iba dahil nakatali ito sa ID ng extension mo.
+// --- 📁 PROJECTS: ang kaalamang IKAW ang nagbibigay ---
+// Isang project kada kliyente: sariling tagubilin at mga dokumento. Ang laman ay
+// hinahanap ng search_files, hindi ibinubuhos sa konteksto. Ang MASTER PROMPT ay
+// minamarkahan ng 📌 — doon tinuturo ang agent para sa istruktura at disenyo.
+$('proj').onclick = async () => {
+  $('menu').style.display = 'none';
+  const F = await import('./files.js');
+
+  const box = document.createElement('div');
+  box.className = 'projbox';
+  const head = document.createElement('b');
+  const body = document.createElement('div');
+  box.append(head, body);
+
+  const sess = active();
+  let openId = null;
+
+  async function paint() {
+    const ps = await F.listProjects();
+    const attached = sess ? (await F.projectForSession(sess.id))?.id : null;
+    const ids = Object.keys(ps);
+    head.textContent = `📁 Projects (${ids.length})`;
+    body.replaceChildren();
+
+    for (const id of ids) {
+      const p = ps[id];
+      const row = document.createElement('div');
+      row.className = 'projrow' + (attached === id ? ' active' : '');
+      const nm = document.createElement('b');
+      nm.textContent = p.name;
+      const n = document.createElement('span');
+      n.className = 'n';
+      const master = p.files.find((f) => f.role === 'prompt');
+      n.textContent = `${p.files.length} dokumento${master ? ' · 📌 ' + master.name.slice(0, 24) : ''}`;
+
+      const use = document.createElement('button');
+      use.textContent = attached === id ? '✓ Gamit' : 'Gamitin';
+      use.onclick = async () => {
+        await F.attachSession(sess.id, attached === id ? null : id);
+        paint();
+      };
+      const open = document.createElement('button');
+      open.textContent = openId === id ? '▾' : '▸';
+      open.onclick = () => { openId = openId === id ? null : id; paint(); };
+      const del = document.createElement('button');
+      del.textContent = '×';
+      del.title = 'Burahin ang project';
+      del.onclick = async () => { await F.deleteProject(id); paint(); };
+
+      row.append(nm, n, use, open, del);
+      body.append(row);
+      if (openId === id) body.append(detailPanel(p, F, paint));
+    }
+
+    const add = document.createElement('button');
+    add.textContent = '＋ Bagong project';
+    add.onclick = async () => {
+      const name = window.prompt('Pangalan ng project (hal. "Hamuq articles"):');
+      if (!name) return;
+      const p = await F.createProject(name);
+      openId = p.id;
+      if (sess) await F.attachSession(sess.id, p.id);
+      paint();
+    };
+    body.append(add);
+
+    if (!ids.length) {
+      const hint = document.createElement('div');
+      hint.className = 'dim';
+      hint.textContent =
+        'Isang project kada kliyente. Ilagay dito ang master prompt, SOP, at mga na-verify na facts — ' +
+        'hahanapin niya ito imbes na manghula o mag-imbento ng sariling disenyo.';
+      body.append(hint);
+    }
+  }
+
+  function detailPanel(p, F, repaint) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'padding:4px 0 8px 10px;display:grid;gap:7px';
+
+    const ta = document.createElement('textarea');
+    ta.placeholder = 'Tagubilin ng project — sinusunod niya sa buong gawain (tono, mga bawal, format).';
+    ta.value = p.instructions || '';
+    ta.onchange = () => F.setInstructions(p.id, ta.value);
+    wrap.append(ta);
+
+    for (const f of p.files) {
+      const fr = document.createElement('div');
+      fr.className = 'filerow' + (f.role === 'prompt' ? ' master' : '');
+      const fn = document.createElement('span');
+      fn.className = 'fn';
+      fn.textContent = (f.role === 'prompt' ? '📌 ' : '📄 ') + f.name;
+      const fm = document.createElement('span');
+      fm.className = 'fm';
+      fm.textContent = `${Math.round(f.size / 1024)}KB · ${f.chunks}`;
+      const star = document.createElement('button');
+      star.textContent = f.role === 'prompt' ? '📌' : '☆';
+      star.title = f.role === 'prompt' ? 'Ito ang master prompt' : 'Markahan bilang master prompt';
+      star.onclick = async () => {
+        await F.setFileRole(p.id, f.id, f.role === 'prompt' ? '' : 'prompt');
+        repaint();
+      };
+      const x = document.createElement('button');
+      x.textContent = '×';
+      x.onclick = async () => { await F.deleteFile(p.id, f.id); repaint(); };
+      fr.append(fn, fm, star, x);
+      wrap.append(fr);
+    }
+    if (p.files.length && !p.files.some((f) => f.role === 'prompt')) {
+      const tip = document.createElement('div');
+      tip.className = 'dim';
+      tip.textContent = 'Pindutin ang ☆ sa master prompt para iyon ang sundin niya sa istruktura at disenyo.';
+      wrap.append(tip);
+    }
+
+    // ANG "PROMPT SCANNER": isang link lang — Google Docs, Sheets, GitHub, o kahit
+    // anong naka-host na .md. Hindi mo na kailangang i-download at i-upload pa.
+    const urlRow = document.createElement('div');
+    urlRow.className = 'row';
+    const urlIn = document.createElement('input');
+    urlIn.placeholder = 'I-paste ang link ng prompt (Google Docs, .md, GitHub)';
+    const grab = document.createElement('button');
+    grab.textContent = 'Kunin';
+    grab.onclick = async () => {
+      const u = urlIn.value.trim();
+      if (!u) return;
+      grab.textContent = '…';
+      const r = await F.importUrl(p.id, u);
+      if (r.error) {
+        grab.textContent = 'Kunin';
+        const err = document.createElement('div');
+        err.className = 'dim';
+        err.style.color = 'var(--err)';
+        err.textContent = r.error;
+        urlRow.after(err);
+        setTimeout(() => err.remove(), 12000);
+        return;
+      }
+      urlIn.value = '';
+      repaint();
+    };
+    urlRow.append(urlIn, grab);
+    wrap.append(urlRow);
+
+    const zone = document.createElement('div');
+    zone.className = 'dropzone';
+    zone.textContent = 'O mag-click / mag-drag ng file (.md .txt .csv .docx .pptx .html)';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.style.display = 'none';
+    input.accept = '.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.log,.docx,.pptx';
+
+    const take = async (fileList) => {
+      for (const file of fileList) {
+        zone.textContent = `Binabasa ang ${file.name}…`;
+        try {
+          const buf = new Uint8Array(await file.arrayBuffer());
+          const text = await F.extractText(file.name, buf);
+          const r = await F.addFile(p.id, file.name, text);
+          zone.textContent = r.error ? `✗ ${file.name}: ${r.error}` : `✓ ${file.name} — ${r.mga_tipak} bahagi`;
+        } catch (e) {
+          zone.textContent = `✗ ${file.name}: ${e.message}`;
+        }
+      }
+      setTimeout(repaint, 1200);
+    };
+    zone.onclick = () => input.click();
+    input.onchange = () => take([...input.files]);
+    zone.ondragover = (e) => { e.preventDefault(); zone.classList.add('over'); };
+    zone.ondragleave = () => zone.classList.remove('over');
+    zone.ondrop = (e) => {
+      e.preventDefault();
+      zone.classList.remove('over');
+      take([...e.dataTransfer.files]);
+    };
+    wrap.append(zone, input);
+    return wrap;
+  }
+
+  await paint();
+  log.append(box);
+  log.scrollTop = log.scrollHeight;
+};
+
 // --- 🔌 CONNECTORS ---
 // Isang malinis na grid ng card, tulad ng sa Claude. Ang mahabang setup ay NAKATAGO
 // hanggang pindutin ang Connect — hindi ka binabaha ng Google Cloud steps pagbukas.

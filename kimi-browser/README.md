@@ -3,6 +3,26 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.22.0 (prompt scanner, at INAYOS ang nawalang Projects)
+
+> ⚠️ **Ang v0.20.1 at v0.21.0 ay walang gumaganang 📁 Projects.** Nang alisin ko ang
+> naiwang lumang bloke ng code sa v0.20.1, kasamang nadala ang buong Projects UI —
+> walang nangyayari kapag pinindot, at walang error. Naibalik na ito.
+
+- **Prompt scanner: i-paste ang link** — bagong URL field sa loob ng project. Google
+  Docs, Google Sheets, GitHub, o kahit anong naka-host na `.md`. Kinukuha nito ang
+  teksto at ginagawang dokumento ng project, kaya hindi mo na kailangang mag-download
+  at mag-upload pa. Kapag private ang Google Doc, malinaw ang sabi kung ano ang gagawin:
+  Share → General access → Anyone with the link → Viewer.
+- **📌 Master prompt** — markahan ang isang dokumento gamit ang ☆. Kapag may nakamarka,
+  TAHASANG tinuturo ito sa system prompt bilang batayan ng istruktura, ng pangalan ng
+  CSS class, at ng palette — at bawal siyang mag-imbento ng sariling disenyo o kulay.
+  Ito ang sagot sa "hindi malinaw kung saan niya kukunin ang prompt".
+- **Bagong `test-wiring.mjs`** — tinitingnan kung may handler ang BAWAT buton at kung
+  totoo ang lahat ng import. Pinatunayan kong nahuhuli nito ang mismong regression na
+  ito bago ko ipinadala. Ang module test ay hindi ito nahuli dahil valid pa rin ang
+  syntax; ang unit tests naman ay hindi hinahawakan ang UI.
+
 ## Anong bago sa v0.21.0 (HTML na disenyo, wika, at hindi na nagsasayang)
 
 - **HTML na dokumento** — kapag may design system ang project, isinusulat na ng agent
