@@ -221,7 +221,14 @@ export const SCHEMA = [
       parameters: {
         type: 'object',
         properties: {
-          append: { type: 'string', description: 'Ang seksyon, markdown. 300-600 salita.' },
+          append: {
+            type: 'string',
+            description:
+              'Ang seksyon, 300-600 salita. Markdown sa karaniwang dokumento. PERO kung may ' +
+              'design system ang project (sariling mga klase, inline <style>, hero, frames), ' +
+              'isulat ito bilang TUNAY NA HTML — kusang nakikilala iyon at itinatago nang BUO, ' +
+              'kasama ang mga klase, style, at script. Huwag ihalo ang markdown at HTML sa isang tawag.',
+          },
           title: { type: 'string', description: 'Pamagat ng dokumento — ilagay sa unang tawag.' },
           start_new: { type: 'boolean', description: 'Simulan ang panibagong dokumento (buburahin ang dati).' },
           replace_section: { type: 'number', description: 'Index ng seksyong papalitan, para sa rebisyon (0 = una).' },

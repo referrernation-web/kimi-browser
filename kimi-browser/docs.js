@@ -40,12 +40,30 @@ async function saveAll(all) {
   } catch {}
 }
 
-const countWords = (s) => (String(s).trim().match(/\S+/g) || []).length;
+// Ang <style> at <script> ay hindi binibilang bilang salita — sila ay disenyo, hindi
+// nilalaman, at palalakihin lang nila ang bilang nang walang katotohanan.
+const stripCode = (s) => String(s).replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ');
+const countWords = (s) => (stripCode(s).replace(/<[^>]+>/g, ' ').trim().match(/\S+/g) || []).length;
+
+// KILALANIN KUNG HTML: ang design system tulad ng Hamuq ay hindi kayang dalhin ng
+// markdown — may sariling klase, inline <style>, at <script> para sa animation. Sa
+// hugis natin ito kinikilala, kaya hindi na kailangang magpasa ng flag ang model.
+export function isHtml(s) {
+  const t = String(s || '').trim();
+  if (!t.startsWith('<')) return false;
+  return /<(div|section|article|style|script|h[1-6]|table|figure|header|p)\b/i.test(t);
+}
 
 // Ang unang heading ng seksyon ang ginagamit bilang pangalan nito sa balangkas.
 const headOf = (md) => {
-  const m = /^\s{0,3}#{1,6}\s+(.+)$/m.exec(md || '');
-  return m ? m[1].trim().slice(0, 60) : String(md || '').trim().split('\n')[0].slice(0, 60);
+  const s = String(md || '');
+  if (isHtml(s)) {
+    const h = /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(stripCode(s));
+    if (h) return h[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    return stripCode(s).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Seksyon';
+  }
+  const m = /^\s{0,3}#{1,6}\s+(.+)$/m.exec(s);
+  return m ? m[1].trim().slice(0, 60) : s.trim().split('\n')[0].slice(0, 60);
 };
 
 export function docAppend({ title, append, start_new, replace_section }) {
@@ -57,6 +75,12 @@ export function docAppend({ title, append, start_new, replace_section }) {
 
     const md = String(append || '').trim();
     if (!md) return { error: 'Walang laman ang seksyon.' };
+
+    // HTML O MARKDOWN? Ang design system tulad ng Hamuq ay nangangailangan ng tunay na
+    // HTML — may sariling klase, inline <style>, at <script>. Hindi kayang dalhin ng
+    // markdown ang mga iyon. Kinikilala natin ang HTML sa hugis nito, kaya hindi na
+    // kailangang isipin ng model kung anong flag ang ipapasa.
+    if (isHtml(md)) doc.html = true;
 
     const kasalukuyan = doc.sections.reduce((n, s) => n + s.md.length, 0);
     if (kasalukuyan + md.length > MAX_DOC_CHARS) {
@@ -106,10 +130,37 @@ export async function docAsMarkdown(sessionId) {
   return `# ${doc.title}\n\n` + doc.sections.map((s) => s.md).join('\n\n');
 }
 
+// Kapag HTML ang isinulat ng model, IBINABALIK ITO NANG BUO — hindi dinadaan sa
+// markdown converter. Doon nawawala ang mga klase, style, at script na siyang buong
+// disenyo. Ito ang dahilan kung bakit dati ay hindi lumalabas ang Hamuq design.
 export async function docAsHtml(sessionId) {
   const doc = await docGet(sessionId);
   if (!doc) return '';
+  if (doc.html) return doc.sections.map((s) => s.md).join('\n');
   return `<h1>${doc.title}</h1>` + blocksToHtml(parseMarkdown(doc.sections.map((s) => s.md).join('\n\n')));
+}
+
+// Para sa .docx, .pdf, at .pptx: kailangan ng blocks, hindi HTML. Ang teksto lang ang
+// kinukuha — sinasadya iyon, dahil ang Word at PowerPoint ay may sariling estilo.
+export async function docAsPlainMarkdown(sessionId) {
+  const doc = await docGet(sessionId);
+  if (!doc) return '';
+  if (!doc.html) return docAsMarkdown(sessionId);
+  const body = doc.sections
+    .map((s) =>
+      stripCode(s.md)
+        .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, n, t) => `\n\n${'#'.repeat(+n)} ${t.replace(/<[^>]+>/g, '').trim()}\n`)
+        .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, t) => `\n- ${t.replace(/<[^>]+>/g, '').trim()}`)
+        .replace(/<\/(p|div|tr|section)>/gi, '\n\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+    )
+    .join('\n\n');
+  return `# ${doc.title}\n\n${body}`;
 }
 
 export async function docClear(sessionId) {

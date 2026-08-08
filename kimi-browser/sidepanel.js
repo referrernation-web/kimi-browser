@@ -217,6 +217,14 @@ const ART_TYPES = [
   { id: 'local', label: 'Lokal na serbisyo', hint: 'para sa isang lugar' },
 ];
 const ART_LENGTHS = [800, 1500, 2500];
+// Ang wika ng ARTIKULO, hindi ng usapan. English ang default dahil karamihan ng
+// kliyente ay dayuhan — at ito mismo ang nakaligtaan sa isang totoong takbo, kung
+// saan Tagalog ang lumabas na artikulo para sa isang Canadian na brand.
+const ART_LANGS = [
+  { id: 'English', label: 'English', hint: 'para sa dayuhang kliyente' },
+  { id: 'Tagalog', label: 'Tagalog', hint: 'para sa lokal na mambabasa' },
+  { id: 'Taglish', label: 'Taglish', hint: 'kaswal, panlokal' },
+];
 
 async function articleWizard(replaceBox) {
   const F = await import('./files.js');
@@ -228,7 +236,10 @@ async function articleWizard(replaceBox) {
   if (replaceBox) replaceBox.replaceWith(box);
   else log.append(box);
 
-  const state = { project: attached?.id || Object.keys(projects)[0] || '', type: 'comparison', words: 1500, topic: '' };
+  const state = {
+    project: attached?.id || Object.keys(projects)[0] || '',
+    type: 'comparison', words: 1500, topic: '', lang: 'English',
+  };
 
   const head = document.createElement('b');
   head.textContent = '📝 Bagong artikulo';
@@ -259,10 +270,23 @@ async function articleWizard(replaceBox) {
     sel.onchange = () => (state.project = sel.value);
     f1.append(sel);
   } else {
+    // Walang project = walang SOP, walang brand facts, walang design system. Ang
+    // lalabas ay generic na artikulong may placeholder — nakita natin ito sa totoong
+    // takbo. Mas mabuting sabihin ito nang malinaw ngayon kaysa pagkatapos ng 10 minuto.
     const none = document.createElement('div');
-    none.className = 'dim';
-    none.textContent = 'Wala ka pang project. Pwede pa ring magsulat, pero mas maganda kung may SOP at brand guidelines siyang mababasa — gawan mo sa 📁 Projects.';
-    f1.append(none);
+    none.className = 'wwarn';
+    none.innerHTML =
+      '<b>Wala kang project.</b> Ibig sabihin walang SOP, walang brand facts, at walang ' +
+      'design system na mababasa niya — generic na artikulo ang lalabas, at placeholder ' +
+      'ang mga detalye. Para sa kliyente, gumawa muna ng project.';
+    const mk = document.createElement('button');
+    mk.className = 'wgo';
+    mk.textContent = '📁 Gumawa ng project muna';
+    mk.onclick = () => {
+      box.remove();
+      $('proj').onclick();
+    };
+    f1.append(none, mk);
   }
 
   // 2 — Paksa
@@ -300,6 +324,25 @@ async function articleWizard(replaceBox) {
   }
   f3.append(chips, lens);
 
+  // 4 — Wika ng ARTIKULO (hindi ng usapan)
+  const f4 = field(4, 'Anong wika ang ARTIKULO?');
+  const langNote = document.createElement('div');
+  langNote.className = 'dim';
+  langNote.textContent = 'Hindi ito ang wika ng usapan natin — ito ang wika ng mambabasa ng artikulo.';
+  const langs = document.createElement('div');
+  langs.className = 'wchips';
+  for (const l of ART_LANGS) {
+    const c = document.createElement('button');
+    c.className = 'wchip' + (l.id === state.lang ? ' on' : '');
+    c.innerHTML = `${l.label}<span>${l.hint}</span>`;
+    c.onclick = () => {
+      state.lang = l.id;
+      for (const x of langs.children) x.classList.toggle('on', x === c);
+    };
+    langs.append(c);
+  }
+  f4.append(langNote, langs);
+
   // Simulan
   const go = document.createElement('button');
   go.className = 'wgo';
@@ -325,11 +368,21 @@ async function articleWizard(replaceBox) {
     const proj = state.project ? projects[state.project] : null;
     const prompt =
       `Sumulat ka ng ${state.words}-salitang artikulo tungkol sa "${state.topic}".\n\n` +
+      `ANG WIKA NG ARTIKULO AY ${state.lang.toUpperCase()}. Isulat ang BUONG artikulo — ` +
+      `pamagat, heading, at laman — sa ${state.lang}. Huwag itong isalin sa wika ng usapan natin.\n\n` +
       `${shape}\n\n` +
       (proj
-        ? `Gamitin ang project na "${proj.name}". BAGO ka magsulat, mag-search_files para sa tono, ` +
-          `mga bawal, at mga na-verify na detalye — huwag mag-imbento ng anumang facts, presyo, o review.\n\n`
-        : '') +
+        ? `Gamitin ang project na "${proj.name}". Ganito ang pagkakasunod:\n` +
+          `1. Mag-search_files para sa DESIGN SYSTEM o template ng project (subukan ang "design system", ` +
+          `"CSS class", "prompt", "template", "structure"). Kung may nahanap ka, SUNDIN ITO NANG BUO — ` +
+          `isulat ang bawat seksyon bilang TUNAY NA HTML na may mga klaseng nakasaad doon, hindi markdown.\n` +
+          `2. Mag-search_files para sa tono, mga bawal, at mga na-verify na detalye (pangalan, presyo, ` +
+          `address). Huwag mag-imbento ng kahit anong facts, presyo, o review — kung wala sa dokumento, ` +
+          `huwag mo itong ilagay at sabihin mo sa dulo kung ano ang kulang.\n` +
+          `3. Saka ka magsulat.\n\n`
+        : `Walang project, kaya markdown lang at huwag mag-imbento ng facts, presyo, o pangalan. ` +
+          `Kung may detalyeng kailangan pero wala ka, sabihin mo sa dulo — huwag maglagay ng placeholder ` +
+          `sa gitna ng artikulo.\n\n`) +
       `Isulat ito kada seksyon gamit ang write_document, 300-600 salita bawat tawag. ` +
       `Huwag isulat ang laman sa sagot mo.`;
 
@@ -1336,6 +1389,8 @@ const SAYS = {
   _midcheck: (a) => `🧐 Second brain: ${a.note}`,
   _autofix: (a) => `♻ Bumagsak sa ${a.avg}/10 — ipinapasulat muli ang sagot…`,
   _loop: (a) => `⛔ Hinarangan ang paulit-ulit na ${a.tool} (ika-${a.n}) — nagsasayang na ito`,
+  _blocked: (a) => `⛔ Inalis ang ${a.tool} — ${a.n} beses nang bumagsak, hindi na ito susubukan`,
+  _noproj: () => '📁 Walang naka-attach na project — walang dokumentong mababasa sa gawaing ito',
   _hub: (a) => `🧠 Pinagsama ang mga aral sa ${a.domain} (${a.merged} → ${a.into})`,
   recall: (a) => `Binabalikan ang mga aral: "${String(a.query).slice(0, 40)}"`,
   search_files: (a) => `📁 Hinahanap sa dokumento: "${String(a.query).slice(0, 40)}"`,

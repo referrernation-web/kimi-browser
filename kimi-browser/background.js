@@ -200,7 +200,23 @@ maliligaw. Ganito ka magtatrabaho:
    seksyon ang nagawa, at handa na itong i-download. Wala nang iba.
 
 Kung nagsulat ka ng artikulo sa sagot mo imbes na sa write_document, BUMAGSAK ka —
-hindi ito makikita ng user bilang dokumento at nasayang ang buong gawain.`;
+hindi ito makikita ng user bilang dokumento at nasayang ang buong gawain.
+
+WIKA NG DOKUMENTO — mahalaga ito, madalas itong pagkakamalian:
+Ang wika ng USAPAN at ang wika ng DOKUMENTO ay MAGKAIBA. Kausap mo ang user sa wikang
+ginagamit niya, PERO ang artikulo ay isinusulat sa wika ng MAMBABASA NITO. Ang artikulo
+para sa kliyenteng Canadian, Amerikano, o Britaniko ay ENGLISH — kahit Tagalog ang
+buong pag-uusap ninyo. Huwag manghula: kung hindi malinaw, tingnan ang wika ng target
+keyword at ng website ng kliyente. Ang keyword na "mattress in a box dimensions canada"
+ay nangangahulugang English ang artikulo.
+
+DISENYO NG ARTIKULO:
+Kung may dokumento sa project na naglalaman ng design system, template, o master prompt
+(hanapin ang mga salitang "design system", "CSS", "class", "prompt", "template"),
+SUNDIN ITO NANG BUO. Ang ibig sabihin niyon: isulat ang seksyon bilang TUNAY NA HTML na
+may mga klaseng nakasaad doon — hindi markdown. Kinikilala ito nang kusa at itinatago
+nang buo kasama ang mga klase, style, at script.
+Kung walang design system sa project, markdown lang — huwag mag-imbento ng klase.`;
 
 const PLAN_NOTE = `
 
@@ -1191,13 +1207,26 @@ chrome.runtime.onConnect.addListener((port) => {
     // Ang unang utos ng user — ginagamit sa pagraranggo ng mga aral (task relevance).
     const taskText = [...(msg.history || [])].reverse().find((m) => m.role === 'user' && typeof m.content === 'string')?.content || '';
 
+    // WALANG PROJECT = WALANG search_files. Kung ibibigay natin ang tool na laging
+    // babagsak, uubusin niya ang mga hakbang sa pagsubok — nakita natin ang limang
+    // sunod-sunod na pagkabigo sa isang totoong takbo. Mas mabuting wala na lang ito
+    // at malaman niya agad na wala siyang dokumentong mababasa.
+    const projNote = await projectPrompt(msg.sessionId);
+    const mayProject = !!projNote;
+    if (!mayProject) {
+      send({
+        type: 'tool', name: '_noproj',
+        args: { mode },
+      });
+    }
+
     const modeNote =
       mode === 'plan' ? PLAN_NOTE : mode === 'coach' ? COACH_NOTE : mode === 'write' ? WRITE_NOTE : '';
     const wpNote = (await workingUrl()).includes('wp-admin') ? WP_PLAYBOOK : '';
     const system =
       `Ang model na tumatakbo ngayon: ${model}. Kapag tinanong kung sino ka, ito ang sabihin mo — huwag magpanggap na ibang model.\n\n` +
       SYSTEM + modeNote + wpNote + flowNote +
-      (await projectPrompt(msg.sessionId)) +
+      projNote +
       (await hubPromptFor(runDomain, taskText));
 
     // EXPLICIT CACHE: ang system prompt ay pareho sa BAWAT hakbang, kaya perpekto
@@ -1542,6 +1571,15 @@ chrome.runtime.onConnect.addListener((port) => {
     const seenCalls = new Map();
     const LOOP_LIMIT = 3;
 
+    // PANGALAWANG BANTAY: ang loop guard sa itaas ay humuhuli lang ng EKSAKTONG parehong
+    // tawag. Sa isang totoong takbo, limang beses bumagsak ang search_files na may
+    // magkakaibang query — iba-iba ang lagda, kaya nakalusot lahat. Dito naman binibilang
+    // ang PAGKABIGO kada tool: kapag tatlong beses nang bumagsak ang isang tool anuman
+    // ang argumento, inaalis na natin ito sa schema — hindi na niya ito makikita.
+    const toolFails = new Map();
+    const blockedTools = new Set();
+    const FAIL_LIMIT = 3;
+
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
         // CACHE-FRIENDLY COMPACTION: ang pagbabago ng mga LUMANG mensahe ay pumapatay
@@ -1612,7 +1650,10 @@ chrome.runtime.onConnect.addListener((port) => {
           apiKey,
           model: routedModel,
           messages,
-          tools: schemaFor(mode, teach).concat(mcpTools, googleTools),
+          tools: schemaFor(mode, teach)
+            .filter((t) => mayProject || t.function.name !== 'search_files')
+            .filter((t) => !blockedTools.has(t.function.name))
+            .concat(mcpTools, googleTools),
           signal: abort.signal,
           onDelta: (type, text) => send({ type, text }),
         });
@@ -1872,6 +1913,22 @@ chrome.runtime.onConnect.addListener((port) => {
           if (result?.error) {
             stepHadError = true;
             lastToolError = `${name}: ${String(result.error).slice(0, 130)}`;
+            // Bilangin ang pagkabigo KADA TOOL, hindi kada eksaktong tawag. Kapag
+            // umabot sa hangganan, tinatanggal na natin ito sa schema sa susunod na
+            // hakbang — hindi na niya makikita, kaya hindi na niya masasayang pa.
+            const n = (toolFails.get(name) || 0) + 1;
+            toolFails.set(name, n);
+            if (n >= FAIL_LIMIT && !blockedTools.has(name)) {
+              blockedTools.add(name);
+              send({ type: 'tool', name: '_blocked', args: { tool: name, n } });
+              record({
+                role: 'user',
+                content:
+                  `[SISTEMA] Tatlong beses nang bumagsak ang ${name}, kaya inalis ko na ito sa mga tool mo. ` +
+                  'Huwag mo nang hanapin. Gamitin ang ibang paraan, o kung wala nang paraan, ' +
+                  'ituloy mo ang gawain gamit ang nasa kamay mo at sabihin sa user kung ano ang kulang.',
+              });
+            }
           }
           // Bantayan kung saang site na siya napunta — para tama ang domain ng aral
           // kahit maraming site ang nadaanan sa isang gawain.

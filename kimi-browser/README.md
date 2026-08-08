@@ -3,6 +3,23 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.21.0 (HTML na disenyo, wika, at hindi na nagsasayang)
+
+- **HTML na dokumento** — kapag may design system ang project, isinusulat na ng agent
+  ang seksyon bilang TUNAY NA HTML at itinatago nang BUO, kasama ang mga klase, style,
+  at script. Dati, dinadaan sa markdown converter kaya nawawala ang buong disenyo.
+  Kusang nakikilala kung HTML — walang flag na kailangang ipasa.
+- **Wika ng dokumento, hiwalay sa wika ng usapan** — bagong ikaapat na tanong sa wizard.
+  English ang default. Dati, Tagalog ang lumalabas na artikulo para sa Canadian na brand
+  dahil Tagalog ang usapan; hiwalay na sila ngayon.
+- **Walang project = walang search_files** — hindi na ibinibigay ang tool na tiyak na
+  babagsak. Sa isang totoong takbo, limang sunod-sunod na pagkabigo ang nasayang doon.
+- **Bantay sa paulit-ulit na PAGKABIGO** — dati, ang loop guard ay humuhuli lang ng
+  eksaktong parehong tawag, kaya nakakalusot ang limang search_files na iba-iba ang
+  query. Ngayon, binibilang ang pagkabigo kada tool: sa ikatlo, inaalis na ito sa schema.
+- **Babala sa wizard** kapag walang project — malinaw na sinasabing generic at
+  puro placeholder ang lalabas, may buton na dumiretso sa 📁 Projects.
+
 ## Anong bago sa v0.20.1 (INAYOS: blangkong panel)
 
 > ⚠️ **Kung blangko ang panel mo, ito ang ayos.** Ang v0.18.0 hanggang v0.20.0 ay SIRA.
