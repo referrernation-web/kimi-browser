@@ -285,7 +285,11 @@ const looksHtml = (s) => /<!doctype|<style[\s>]|<section|<div/i.test(String(s ||
 // --- KUSANG PAGKILALA NG ROLE ---
 // Isang naipadalang artikulo: HTML na may sariling <style>. Iyon lang ang hugis na
 // mahalaga — doon nakalagay ang totoong CSS.
-const mukhangTemplate = (f, body) => /\.html?$/i.test(f.name) && /<style[\s>]/i.test(body || '');
+// Ang PANGALAN ang batayan, hindi ang laman. Ang isang .html sa isang project ay
+// naipadala nang artikulo — wala nang ibang dahilan para mag-upload ng ganoon. Kailangan
+// itong pangalan lang dahil ang mga file na na-upload bago ang v0.23 ay HINUBARAN ng
+// tags ng lumang extractText, kaya wala nang <style> doon na mahahanap.
+const mukhangTemplate = (f) => /\.html?$/i.test(f.name);
 // Isang master prompt: mahaba, may istruktura, at may salitang tumutukoy sa pagiging
 // panuntunan. Ang 5,000 na karakter ang naghihiwalay nito sa maikling tala.
 const mukhangPrompt = (f, body) =>
@@ -307,7 +311,13 @@ export function autoMark(projectId) {
       let pinili = null;
       for (const f of p.files) {
         if (f.role) continue;
-        const body = await get(RAW_PREFIX + f.id, '');
+        // Ang mga file na na-upload BAGO ang v0.23 ay walang naka-imbak na orihinal.
+        // Kung doon lang titingin, hindi maaayos ang mga umiiral nang project — at
+        // sila mismo ang may problema. Ang unang tipak ay sapat na para makilala ang
+        // hugis: may <style> ba, at may pangalan ba ng bahagi.
+        const body =
+          (await get(RAW_PREFIX + f.id, '')) ||
+          (await get(CHUNK_PREFIX + f.id, [])).slice(0, 6).join('\n');
         if (!body || !tseke(f, body)) continue;
         if (!pinili || f.size > pinili.size) pinili = f;
       }
@@ -406,7 +416,7 @@ export function addFile(projectId, name, text) {
     // makapagsulat ng kahit isang salita — dahil hindi napindot ang dalawang buton.
     // Kilalanin na lang natin ang mga file: malinaw naman ang hugis nila.
     const may = (r) => p.files.some((x) => x.role === r);
-    if (!may('template') && mukhangTemplate(f, body)) f.role = 'template';
+    if (!may('template') && mukhangTemplate(f)) f.role = 'template';
     else if (!may('prompt') && mukhangPrompt(f, body)) f.role = 'prompt';
     p.files.push(f);
     await set({ [PKEY]: ps });
@@ -590,9 +600,20 @@ export async function projectPrompt(sessionId, mode) {
   // ANG TEMPLATE ANG UNA. Ito ang byte-exact na bagay: ang master prompt ay
   // maaaring i-paraphrase, ang CSS ay hindi.
   if (template) {
+    const laman = await fileBody(template);
+    // Ang mga .html na na-upload BAGO ang v0.23 ay hinubaran ng tags ng lumang code,
+    // kaya wala nang CSS doon. Sabihin ito nang malinaw — mas mabuti kaysa tahimik na
+    // magpasok ng teksto na walang disenyo at hayaang mag-imbento siya.
+    if (!/<style[\s>]|\{[^}]*:[^}]*\}/.test(laman)) {
+      out +=
+        `\n\nBABALA: ang "${template.name}" ay minarkahan bilang 🎨 pero WALANG CSS sa loob ` +
+        `— malamang na-upload ito noong hinuhubaran pa ng lumang bersyon ang HTML. Sabihin ` +
+        `sa user na i-upload muli ito para makuha ang tunay na disenyo. Huwag mag-imbento ` +
+        `ng palette pansamantala.`;
+    }
     dagdag(
       template,
-      await fileBody(template),
+      laman,
       `===== 🎨 TEMPLATE NG DISENYO: ${template.name} =====\n` +
         `Ito ang TOTOONG CSS, script, at markup ng isang NAIPADALA nang artikulo — hindi ` +
         `paglalarawan nito. KOPYAHIN ang <style> block na ito nang BUO at NANG WALANG ` +

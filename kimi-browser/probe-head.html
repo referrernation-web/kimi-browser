@@ -15,6 +15,19 @@ const store = {
     },
   },
   sessionProject: {},
+  // Isang dokumentong HTML — para masubok ang doc card, ang checker, at ang mga export.
+  docs: {
+    sess1: {
+      title: 'How Much Does a Mattress Cost in Canada?',
+      html: true,
+      words: 120,
+      updatedAt: 1,
+      sections: [
+        { h: 'Hero', md: '<style>.hq-hero{min-height:300px}.hq-goldframe{border-radius:13px}</style><div class="hq-article"><div class="hq-hero"><h2>How Much Does a Mattress Cost in Canada?</h2></div>' },
+        { h: 'Price', md: '<h2>Price by type</h2><p>A queen runs $999 to $1,999 and 8 percent overpay — really.</p><div class="hq-ctacard">walang CSS ang klaseng ito</div></div>' },
+      ],
+    },
+  },
 };
 globalThis.chrome = {
   storage: { local: {

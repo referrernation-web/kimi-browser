@@ -160,4 +160,47 @@ assert.match(buoHtml, /class="hq-hero"/, 'ang BUONG pahina ay iniingatan ang mar
 const pirasoHtml = await F.extractText('piraso.html', enc('<p>Laman <b>dito</b></p>'));
 assert.ok(!pirasoHtml.includes('<b>'), 'ang PIRASO lang ng HTML ay teksto ang halaga, kaya nililinis pa rin');
 
+// ---------- Kusang pagmamarka, pati sa mga LUMANG file ----------
+// Ang pagpindot ng ☆ at 🖌 ay hakbang na madaling makalimutan, at tahimik ang kabiguan:
+// bumabalik lang siya sa paghahanap at gumagawa ng sariling disenyo. Sa isang totoong
+// takbo, LABIMPITONG search_files bago pa makapagsulat ng isang salita.
+const p4 = await F.createProject('Auto');
+const m4 = await F.addFile(p4.id, 'client-master-prompt.md', src);
+const t4 = await F.addFile(p4.id, 'shipped-2026.html', shipped);
+await F.addFile(p4.id, 'notes.txt', 'Maikling tala lang ito.');
+const files4 = (await F.listProjects())[p4.id].files;
+assert.equal(files4.find((f) => f.id === m4.id).role, 'prompt', 'kusang nakilala ang master prompt');
+assert.equal(files4.find((f) => f.id === t4.id).role, 'template', 'kusang nakilala ang template');
+assert.ok(!files4.find((f) => f.name === 'notes.txt').role, 'hindi minamarkahan ang maikling tala');
+
+// Ang mga file na na-upload BAGO ang v0.23 ay walang naka-imbak na orihinal, at ang
+// HTML noon ay HINUBARAN ng tags. Kung ang raw lang ang titingnan, hindi maaayos ang
+// mga umiiral nang project — at sila mismo ang may problema.
+const p5 = await F.createProject('Luma');
+const luma1 = await F.addFile(p5.id, 'v4.5-luma.md', src);
+const luma2 = await F.addFile(p5.id, 'shipped-luma.html', 'Ang teksto lang, hinubaran na ng tags noong 2026. '.repeat(200));
+for (const id of [luma1.id, luma2.id]) await chrome.storage.local.remove('fraw_' + id);
+const ps5 = await F.listProjects();
+for (const f of ps5[p5.id].files) f.role = '';
+await chrome.storage.local.set({ projects: ps5 });
+
+const r5 = await F.autoMark(p5.id);
+const files5 = (await F.listProjects())[p5.id].files;
+assert.equal(
+  files5.find((f) => f.id === luma2.id).role, 'template',
+  'nakikilala pa rin ang lumang .html sa PANGALAN — walang <style> doon dahil hinubaran ito ng lumang code'
+);
+assert.equal(files5.find((f) => f.id === luma1.id).role, 'prompt', 'nakikilala ang lumang master prompt mula sa mga tipak');
+assert.equal(r5.binago.length, 2, 'iniuulat kung ano ang minarkahan para makita ng user');
+
+// At kapag walang CSS ang 🎨, SINASABI ito — hindi tahimik na nagpapasok ng walang silbi.
+await F.attachSession('s5', p5.id);
+const w5 = await F.projectPrompt('s5', 'write');
+assert.match(w5, /WALANG CSS sa loob/, 'sinasabi kapag walang disenyo ang minarkahang template');
+assert.match(w5, /i-upload muli/, 'sinasabi ang gagawin');
+
+// Hindi nang-aagaw sa piniling mano-mano ng user.
+const bago = await F.autoMark(p5.id);
+assert.equal(bago.binago.length, 0, 'walang binabago kapag may marka na');
+
 console.log('OK — buo at verbatim ang master prompt at ang totoong CSS sa write mode');
