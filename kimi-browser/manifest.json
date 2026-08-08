@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kimi K3 Browser",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "Kimi K3 agent na nakikita at kayang kontrolin ang sariling tab group.",
   "permissions": [
     "storage",

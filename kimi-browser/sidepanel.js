@@ -1161,13 +1161,26 @@ const toCSV = (t) =>
     .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\r\n');
 
-function download(t) {
-  const url = URL.createObjectURL(new Blob(['﻿' + toCSV(t)], { type: 'text/csv' }));
+// Iisang daan ang lahat ng download — dito nakatira ang dalawang bagay na madaling
+// makalimutan: idikit muna ang anchor sa dokumento, at HUWAG agad i-revoke ang blob
+// (nauunahan nito ang download, lalo na kapag malaki ang laman).
+function saveBlob(text, filename, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = t.title.replace(/[^\w-]+/g, '-').toLowerCase() + '.csv';
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.append(a);
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, 60000);
+}
+
+function download(t) {
+  const base = t.title.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50);
+  saveBlob('﻿' + toCSV(t), (base || 'talahanayan') + '.csv', 'text/csv');
 }
 
 async function copyTable(t, btn) {
@@ -1840,8 +1853,13 @@ $('mic').onclick = toggleMic;
 
 // --- EXPORT: i-download ang usapan bilang Markdown ---
 $('export').onclick = () => {
+  $('menu').style.display = 'none';
   const s = active();
-  if (!s || !s.transcript.length) return;
+  // Dating tahimik itong bumabalik — mukhang sirang buton kung wala ka lang laman.
+  if (!s || !s.transcript.length) {
+    if (s) emit(s, { t: 'error', text: 'Walang maie-export — wala pang laman ang usapang ito.' });
+    return;
+  }
   const lines = [`# ${s.title}`, '', `_${new Date(s.createdAt).toLocaleString()}_`, ''];
   for (const e of s.transcript) {
     if (e.t === 'user') lines.push('## Ikaw', '', e.text, '');
@@ -1860,14 +1878,22 @@ $('export').onclick = () => {
         ''
       );
     }
+    else if (e.t === 'plan') {
+      lines.push(
+        `### 📋 Plano (${e.done}/${(e.steps || []).length})`,
+        '',
+        ...(e.steps || []).map((x, i) => `${i < e.done ? '- [x]' : '- [ ]'} ${x}`),
+        ''
+      );
+    }
     // Ang 'think' ay hindi naisasama — panloob na pag-iisip iyon.
   }
-  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = s.title.replace(/[^\w-]+/g, '-').toLowerCase().slice(0, 50) + '.md';
-  a.click();
-  URL.revokeObjectURL(url);
+  // Ang pamagat ay maaaring puro emoji o bantas — huwag mag-iwan ng blangkong pangalan.
+  const base = s.title.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 50);
+  const name = (base || 'kimi-usapan') + '.md';
+  const body = lines.join('\n');
+  saveBlob(body, name, 'text/markdown');
+  emit(s, { t: 'tool', text: `⤓ Na-export: ${name} (${Math.round(body.length / 1024)} KB) — nasa Downloads mo` });
 };
 
 // --- TUNOG NG TAB → Groq Whisper ---

@@ -3,6 +3,18 @@
 > ⚠️ **PRIVATE na ang repo na ito** — may naka-baked na Cartesia API key sa
 > `sidepanel.js`. Huwag itong gawing public habang nandiyan ang key.
 
+## Anong bago sa v0.12.2 (naayos ang ⤓ Export)
+
+- **Naayos ang Export na hindi gumagana kapag malaki na ang usapan** — agad na
+  ini-revoke ang blob pagkatapos ng click, at natatalo nito ang download mismo. Mas
+  madalas itong nangyari kapag mahaba na ang usapan, kaya mukhang "hindi na
+  maclick". Idinikit na rin sa dokumento ang download link (hindi laging kumakagat
+  ang detached na anchor sa side panel).
+- May kumpirmasyon na sa chat: `⤓ Na-export: pangalan.md (12 KB)` — hindi na tahimik.
+- Kasama na ang 📋 plano sa export, at hindi na `.md` lang ang pangalan kapag puro
+  emoji o bantas ang pamagat ng usapan.
+- Parehong ayos sa CSV download ng mga talahanayan — iisang daan na sila.
+
 ## Anong bago sa v0.12.1
 
 - **Prosa ang default na sagot, hindi listahan** — sa karaniwang tanong, usapan, o
